@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard S.A.L. Cantiere</title>
+    
+    <!-- Caricamento Tailwind CSS per gli stili -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Caricamento React e ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    
+    <!-- Caricamento Babel per leggere il codice React nel browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans">
+    
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useRef } = React;
+
+        const Icon = ({ name, size = 24, className = "" }) => {
+            const icons = {
+                'file-spreadsheet': <g><path d="M14 2v4a2 2 0 0 0 2 2h4" /><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z" /><path d="M8 13h8" /><path d="M8 17h8" /><path d="M8 9h2" /></g>,
+                'download': <g><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></g>,
+                'upload': <g><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></g>,
+                'plus': <g><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></g>,
+                'layers': <g><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></g>,
+                'search': <g><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></g>,
+                'x': <g><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></g>,
+                'pencil': <g><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></g>,
+                'save': <g><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></g>,
+                'trash': <g><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></g>,
+                'check-circle': <g><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></g>
+            };
+            return (
+                <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                    {icons[name]}
+                </svg>
+            );
+        };
+
+        const initialData = [
+            { id: 1, codice: "SIC24_21.1.20", descrizione: "Scomposizione di manto di tegole di qualsiasi tipo, compresi la selezione, pulitura ed accatastamento.", importoPrevisto: 1040.73, note: "", isEditing: false },
+            { id: 2, codice: "SIC24_21.1.21", descrizione: "Scomposizione di piccola orditura e/o tavolato in legno (esclusa la grossa armatura), compresi la scelta e l'accatastamento.", importoPrevisto: 439.21, note: "", isEditing: false },
+            { id: 3, codice: "DA2.5.02.014 a", descrizione: "Scavo a sezione obbligata eseguito in zona ristretta con disposizione del materiale in cumulo in terra vegetale, terreno naturale incoerente o poco coerente.", importoPrevisto: 567.77, note: "", isEditing: false },
+            { id: 4, codice: "DA2.5.02.018", descrizione: "Carico o reinterro da cumulo in zona molto ristretta con maggiorazione del 20% per aumento volume.", importoPrevisto: 280.71, note: "", isEditing: false },
+            { id: 5, codice: "SIC24_20.11.1", descrizione: "Resistenza a compressione su provini cubici (15x15x15 cm o 16x16x16 cm) e cilindrici. Prova da eseguirsi su 2 provini.", importoPrevisto: 88.71, note: "", isEditing: false },
+            { id: 6, codice: "SIC24_20.13.2 6", descrizione: "Taglio e preparazione dei provini di cementi, malte, gessi e calci idrauliche.", importoPrevisto: 186.24, note: "", isEditing: false },
+            { id: 7, codice: "SIC24_20.13.3", descrizione: "Resistenza alla compressione di provini di cementi, malte, gessi e calci idrauliche per ogni grado di stagionatura da eseguirsi su 6 campioni.", importoPrevisto: 258.70, note: "", isEditing: false },
+            { id: 8, codice: "SIC24_20.14.1", descrizione: "Prova di trazione con determinazione di snervamento, rottura, allungamento. (Per ogni terna di provini).", importoPrevisto: 698.49, note: "", isEditing: false },
+            { id: 9, codice: "SIC24_20.14.3", descrizione: "Prova di piegamento e raddrizzamento. (per ogni terna).", importoPrevisto: 310.50, note: "", isEditing: false },
+            { id: 10, codice: "SIC24_2.3.1.1", descrizione: "Vespaio di pietrame calcareo, lavico o arenario forte, da utilizzarsi per sottopavimentazione, collocato con mezzo meccanico e formato con pietrame idoneamente disposto.", importoPrevisto: 1103.61, note: "", isEditing: false },
+            { id: 11, codice: "SIC24_19.10.1 2", descrizione: "Fornitura e posa in opera di tubi di drenaggio in barre o in rotoli in polietilene ad alta densità microfessurati per la captazione ed evacuazione di acqua.", importoPrevisto: 517.20, note: "", isEditing: false },
+            { id: 12, codice: "SIC24_3.1.1.4", descrizione: "Conglomerato cementizio per strutture non armate o debolmente armate (magrone e battuti).", importoPrevisto: 1301.12, note: "", isEditing: false },
+            { id: 13, codice: "SIC24_3.1.2.1", descrizione: "Conglomerato cementizio per strutture in calcestruzzo armato in ambiente secco/umido (fondazioni C25/30).", importoPrevisto: 1590.25, note: "", isEditing: false },
+            { id: 14, codice: "SIC24_3.1.2.9", descrizione: "Conglomerato cementizio per strutture in calcestruzzo armato in ambiente secco/umido (elevazione C25/30).", importoPrevisto: 556.23, note: "", isEditing: false },
+            { id: 15, codice: "SIC24_3.1.1.6", descrizione: "Conglomerato cementizio per strutture non armate o debolmente armate (fondazione C20/25).", importoPrevisto: 2923.02, note: "", isEditing: false },
+            { id: 16, codice: "SIC24_3.2.1.1", descrizione: "Acciaio in barre a aderenza migliorata Classi B450C controllato in stabilimento, per lavori in cemento armato.", importoPrevisto: 3371.26, note: "", isEditing: false },
+            { id: 17, codice: "SIC24_3.2.4", descrizione: "Fornitura e collocazione di rete d'acciaio elettrosaldata a fili nervati ad aderenza migliorata Classi B450C.", importoPrevisto: 1615.63, note: "", isEditing: false },
+            { id: 18, codice: "SIC24_3.2.2", descrizione: "Casseforme per strutture intelaiate in cemento armato, di qualsiasi forma e dimensione.", importoPrevisto: 3210.38, note: "", isEditing: false },
+            { id: 19, codice: "SIC24_12.1.3", descrizione: "Fornitura e posa in opera di impermeabilizzazione con guaina prefabbricata a base di bitume.", importoPrevisto: 258.94, note: "", isEditing: false },
+            { id: 20, codice: "DB1.5.01.009.a", descrizione: "[B15009a] Isolamento termico in estradosso di coperture piane a terrazzo mediante pannelli rigidi XPS spessore 30 mm.", importoPrevisto: 184.22, note: "", isEditing: false },
+            { id: 21, codice: "DB1.5.01.009.b", descrizione: "[B15009b] Isolamento termico XPS sovrapprezzo per ogni cm in più di spessore fino a 60 mm.", importoPrevisto: 0.00, note: "", isEditing: false },
+            { id: 22, codice: "AP.OP.ED.09", descrizione: "Fornitura e posa in opera di membrana in polietilene ad alta densità HDPE con struttura bugnata.", importoPrevisto: 112.89, note: "", isEditing: false },
+            { id: 23, codice: "SIC24_21.2.3", descrizione: "Muratura di mattoni pieni e malta eseguita a cuci e scuci per piccoli tratti.", importoPrevisto: 520.25, note: "", isEditing: false },
+            { id: 24, codice: "SIC24_2.3.2.2", descrizione: "Formazione di vespaio areato da realizzare mediante il posizionamento, su un piano preformato, di casseri a perdere modulari in polipropilene.", importoPrevisto: 2003.80, note: "", isEditing: false },
+            { id: 25, codice: "SIC24_2.1.1", descrizione: "Muratura in conci di tufo e malta bastarda, retta o centinata.", importoPrevisto: 9357.04, note: "", isEditing: false },
+            { id: 26, codice: "SIC24_7.2.2", descrizione: "Fornitura a piè d'opera di carpenteria metallica leggera e media, costituita da profili aperti laminati a caldo.", importoPrevisto: 583.65, note: "", isEditing: false },
+            { id: 27, codice: "SIC24_7.2.8", descrizione: "Montaggio in opera di carpenteria metallica per impalcato da ponte per altezze fino a 20 m.", importoPrevisto: 658.88, note: "", isEditing: false },
+            { id: 28, codice: "SIC24_21.2.8.2", descrizione: "Formazione di architravi in setti murari con funzione portante di qualunque tipo e spessore.", importoPrevisto: 1296.40, note: "", isEditing: false },
+            { id: 29, codice: "SIC24_21.5.3", descrizione: "Travi in legno lamellare, di qualsiasi lunghezza e sezione, fornite e poste in opera per ossatura di solai.", importoPrevisto: 4199.06, note: "", isEditing: false },
+            { id: 30, codice: "SIC24_21.5.12", descrizione: "Capriate con travi in legno lamellare, di qualunque lunghezza e sezione, fornite e poste in opera.", importoPrevisto: 1124.69, note: "", isEditing: false },
+            { id: 31, codice: "SIC24_21.5.14", descrizione: "Tavole di abete di spessore 20-25 mm, fornite e poste in opera per impalcatura o per appoggio del manto di tegole.", importoPrevisto: 2036.61, note: "", isEditing: false },
+            { id: 32, codice: "DB2.5.05.058.a", descrizione: "[B25058a] Barriera al vapore costituita da un foglio di polietilene estruso spessore 0,25 mm.", importoPrevisto: 398.80, note: "", isEditing: false },
+            { id: 33, codice: "DB1.5.02.038.a", descrizione: "[B15038a] Coibentazione termica in estradosso di structures inclinate con pannelli in polistirene estruso XPS spessore 80 mm.", importoPrevisto: 2319.66, note: "", isEditing: false },
+            { id: 34, codice: "SIC24_12.5.10", descrizione: "Fornitura e collocazione di lastra monostrato ondulata per sottocoppo, a base di fibre organiche bitumate.", importoPrevisto: 1822.20, note: "", isEditing: false },
+            { id: 35, codice: "SIC24_21.5.18", descrizione: "Posa in opera di tegole di qualsiasi tipo provenienti dalle dismissioni.", importoPrevisto: 558.81, note: "", isEditing: false },
+            { id: 36, codice: "SIC24_12.4.1.5", descrizione: "Fornitura e posa in opera di manto di copertura con tegole murate con malta bastarda (tipo Coppo siciliano).", importoPrevisto: 2077.92, note: "", isEditing: false },
+            { id: 37, codice: "SIC24_15.4.11 1", descrizione: "Fornitura e collocazione di grondaia in rame dello sviluppo non inferiore a 35 cm fino a 50 cm.", importoPrevisto: 819.77, note: "", isEditing: false },
+            { id: 38, codice: "AP.OP.ED.12", descrizione: "Fornitura e posa in opera di grondaia e pluviale in cotto siciliano artigianale.", importoPrevisto: 4604.04, note: "", isEditing: false },
+            { id: 39, codice: "AP.OP.ED.14b", descrizione: "Fornitura e posa in opera di sistema intonaco termoisolante (Termointonaco Laterlite) spessore 5 cm.", importoPrevisto: 9332.85, note: "", isEditing: false },
+            { id: 40, codice: "AP.SIC.02", descrizione: "Impianto di cantiere con installazione box in lamiera uso deposito, bagno chimico e ponteggio.", importoPrevisto: 1500.00, note: "", isEditing: false },
+            { id: 41, codice: "SIC24_26.1.1.1", descrizione: "Approntamento di ponteggio in elementi portanti metallici (sistema a telaio).", importoPrevisto: 1359.29, note: "", isEditing: false },
+            { id: 42, codice: "SIC24_26.1.3", descrizione: "Smontaggio ad ad opera ultimata di ponteggio di cui alla voce 26.1.1.", importoPrevisto: 599.78, note: "", isEditing: false },
+            { id: 43, codice: "SIC24_26.1.26", descrizione: "Recinzione perimetrale di protezione in rete estrusa di polietilene ad alta densità HDPE.", importoPrevisto: 274.00, note: "", isEditing: false },
+        ];
+
+        function SalDashboard() {
+            const [sals, setSals] = useState([1]); 
+            const [activeSalView, setActiveSalView] = useState("ALL");
+            const [searchCodice, setSearchCodice] = useState("");
+            const fileInputRef = useRef(null);
+
+            const [items, setItems] = useState(() => {
+                return initialData.map(item => ({
+                ...item,
+                eseguiti: { 1: 0 } 
+                }));
+            });
+
+            const filteredItems = useMemo(() => {
+                if (!searchCodice.trim()) return items;
+                return items.filter(item => 
+                (item.codice || "").toLowerCase().includes(searchCodice.toLowerCase())
+                );
+            }, [items, searchCodice]);
+
+            const formatCurrency = (value) => {
+                return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(parseFloat(value) || 0);
+            };
+
+            const getItemTotalEseguito = (item) => {
+                return Object.values(item.eseguiti || {}).reduce((sum, val) => sum + (parseFloat(val) || 0), 0);
+            };
+
+            const isExtraItem = (codice) => {
+                return codice && String(codice).toUpperCase().startsWith('EXTRA');
+            };
+
+            const handleItemChange = (id, field, value) => {
+                setItems(items.map(item => {
+                if (item.id === id) {
+                    return { ...item, [field]: value };
+                }
+                return item;
+                }));
+            };
+
+            const handleSalChange = (id, salId, value) => {
+                setItems(items.map(item => {
+                if (item.id === id) {
+                    return {
+                    ...item,
+                    eseguiti: {
+                        ...item.eseguiti,
+                        [salId]: value 
+                    }
+                    };
+                }
+                return item;
+                }));
+            };
+
+            const handleTotalChange = (id, value) => {
+                setItems(items.map(item => {
+                if (item.id === id) {
+                    let parsedValue = parseFloat(value) || 0;
+                    const latestSal = Math.max(...sals);
+                    
+                    const previousSalsTotal = Object.entries(item.eseguiti || {}).reduce((sum, [key, val]) => {
+                    return Number(key) === latestSal ? sum : sum + (parseFloat(val) || 0);
+                    }, 0);
+
+                    if (parsedValue < previousSalsTotal) {
+                    return {
+                        ...item,
+                        eseguiti: { 1: value } 
+                    };
+                    }
+
+                    return {
+                    ...item,
+                    eseguiti: {
+                        ...item.eseguiti,
+                        [latestSal]: (parsedValue - previousSalsTotal).toString()
+                    }
+                    };
+                }
+                return item;
+                }));
+            };
+
+            const createNewSal = () => {
+                const nextSalNumber = sals.length > 0 ? Math.max(...sals) + 1 : 1;
+                setSals([...sals, nextSalNumber]);
+                setActiveSalView(nextSalNumber);
+                
+                setItems(items.map(item => ({
+                ...item,
+                eseguiti: { ...item.eseguiti, [nextSalNumber]: 0 }
+                })));
+            };
+
+            const toggleEdit = (id) => {
+                setItems(items.map(item => item.id === id ? { ...item, isEditing: !item.isEditing } : item));
+            };
+
+            const deleteItem = (id) => {
+                if(window.confirm("Sei sicuro di voler eliminare questa voce?")) {
+                setItems(items.filter(item => item.id !== id));
+                }
+            };
+
+            const addItem = () => {
+                const newId = items.length > 0 ? Math.max(...items.map(i => i.id)) + 1 : 1;
+                setItems([...items, {
+                id: newId,
+                codice: "",
+                descrizione: "Nuova lavorazione...",
+                importoPrevisto: 0,
+                note: "",
+                eseguiti: sals.reduce((acc, sal) => ({ ...acc, [sal]: 0 }), {}),
+                isEditing: true
+                }]);
+                setSearchCodice(""); 
+                
+                setTimeout(() => {
+                    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+                }, 100);
+            };
+
+            const addExtraItem = () => {
+                const newId = items.length > 0 ? Math.max(...items.map(i => i.id)) + 1 : 1;
+                
+                // Cerca il numero progressivo più alto tra le spese extra esistenti
+                const extraItems = items.filter(i => isExtraItem(i.codice));
+                let maxExtraNum = 0;
+                extraItems.forEach(i => {
+                    const numPart = parseInt(i.codice.split('-')[1]);
+                    if (!isNaN(numPart) && numPart > maxExtraNum) {
+                        maxExtraNum = numPart;
+                    }
+                });
+                const nextExtraNum = maxExtraNum + 1;
+                const generatedCodice = `EXTRA-${String(nextExtraNum).padStart(3, '0')}`; // es: EXTRA-001
+
+                setItems([...items, {
+                id: newId,
+                codice: generatedCodice,
+                descrizione: "Nuova spesa extra...",
+                importoPrevisto: 0,
+                note: "",
+                eseguiti: sals.reduce((acc, sal) => ({ ...acc, [sal]: 0 }), {}),
+                isEditing: true
+                }]);
+                setSearchCodice(""); 
+                
+                setTimeout(() => {
+                    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+                }, 100);
+            };
+
+            const handleBackup = () => {
+                const dataToSave = JSON.stringify(items, null, 2);
+                const blob = new Blob([dataToSave], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `backup_sal_cantiere_${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            };
+
+            const handleRestore = (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                    const restoredData = JSON.parse(e.target.result);
+                    if (Array.isArray(restoredData)) {
+                        let maxSalFound = 1;
+                        const upgradedData = restoredData.map(item => {
+                        let eseguiti = item.eseguiti || {};
+                        if (!item.eseguiti && item.importoEseguito !== undefined) {
+                            eseguiti = { 1: item.importoEseguito };
+                        }
+                        Object.keys(eseguiti).forEach(k => {
+                            if (Number(k) > maxSalFound) maxSalFound = Number(k);
+                        });
+                        return { ...item, eseguiti };
+                        });
+                        
+                        setSals(Array.from({length: maxSalFound}, (_, i) => i + 1));
+                        setItems(upgradedData);
+                        setActiveSalView("ALL");
+                        alert("Dati ripristinati con successo!");
+                    }
+                    } catch (error) {
+                    alert("Errore durante la lettura del file.");
+                    }
+                };
+                reader.readAsText(file);
+                }
+                if (fileInputRef.current) fileInputRef.current.value = '';
+            };
+
+            const totals = useMemo(() => {
+                // Calcoli differenziati per Base ed Extra
+                const previstoBase = items.filter(i => !isExtraItem(i.codice)).reduce((sum, item) => sum + (parseFloat(item.importoPrevisto) || 0), 0);
+                const previstoExtra = items.filter(i => isExtraItem(i.codice)).reduce((sum, item) => sum + (parseFloat(item.importoPrevisto) || 0), 0);
+                const previstoComplessivo = previstoBase + previstoExtra;
+                
+                let eseguitoBase = 0;
+                let eseguitoExtra = 0;
+
+                if (activeSalView === "ALL") {
+                    eseguitoBase = items.filter(i => !isExtraItem(i.codice)).reduce((sum, item) => sum + getItemTotalEseguito(item), 0);
+                    eseguitoExtra = items.filter(i => isExtraItem(i.codice)).reduce((sum, item) => sum + getItemTotalEseguito(item), 0);
+                } else {
+                    eseguitoBase = items.filter(i => !isExtraItem(i.codice)).reduce((sum, item) => sum + (parseFloat(item.eseguiti?.[activeSalView]) || 0), 0);
+                    eseguitoExtra = items.filter(i => isExtraItem(i.codice)).reduce((sum, item) => sum + (parseFloat(item.eseguiti?.[activeSalView]) || 0), 0);
+                }
+
+                const eseguitoTotale = eseguitoBase + eseguitoExtra;
+                const scontoEseguito = eseguitoTotale * 0.07;
+                const eseguitoNetto = eseguitoTotale - scontoEseguito;
+
+                const percentuale = previstoComplessivo > 0 ? ((eseguitoTotale / previstoComplessivo) * 100).toFixed(2) : 0;
+                
+                return { 
+                    previstoBase, previstoExtra, previsto: previstoComplessivo, 
+                    eseguitoBase, eseguitoExtra, eseguito: eseguitoTotale, 
+                    scontoEseguito, eseguitoNetto, percentuale 
+                };
+            }, [items, activeSalView]);
+
+            return (
+                <div className="min-h-screen bg-gray-50 p-2 sm:p-4 md:p-8 font-sans text-gray-800">
+                
+                {/* Header & Riepilogo */}
+                <div className="max-w-7xl mx-auto mb-4 sm:mb-8 bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
+                    
+                    {/* Barra superiore */}
+                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-gray-100 pb-4 mb-4 sm:mb-6">
+                    <div className="flex items-center gap-3 w-full lg:w-auto">
+                        <div className="p-2 sm:p-3 bg-blue-100 text-blue-600 rounded-lg shrink-0">
+                        <Icon name="file-spreadsheet" size={24} className="sm:w-7 sm:h-7" />
+                        </div>
+                        <div>
+                        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight">Gestione S.A.L.</h1>
+                        <p className="text-xs sm:text-sm text-gray-500">Committente: Rignanese Silvia e Rignanese Antonio</p>
+                        </div>
+                    </div>
+                    
+                    {/* Pulsanti Header Modificati per includere "Spese Extra" */}
+                    <div className="grid grid-cols-2 lg:flex lg:flex-wrap items-center gap-2 w-full lg:w-auto">
+                        <button onClick={handleBackup} className="flex justify-center items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg font-medium transition-colors text-xs sm:text-sm w-full lg:w-auto">
+                        <Icon name="download" size={16} className="sm:w-[18px] sm:h-[18px]" /> <span className="hidden sm:inline">Backup</span><span className="sm:hidden">Salva</span>
+                        </button>
+                        <button onClick={() => fileInputRef.current?.click()} className="flex justify-center items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg font-medium transition-colors text-xs sm:text-sm w-full lg:w-auto">
+                        <Icon name="upload" size={16} className="sm:w-[18px] sm:h-[18px]" /> Carica
+                        </button>
+                        <input type="file" accept=".json" onChange={handleRestore} ref={fileInputRef} className="hidden" />
+                        <button onClick={addItem} className="flex justify-center items-center gap-1 sm:gap-2 bg-blue-600 hover:bg-blue-700 text-white px-2 sm:px-4 py-2 rounded-lg font-medium transition-colors lg:ml-2 text-xs sm:text-sm w-full lg:w-auto">
+                        <Icon name="plus" size={16} className="sm:w-[18px] sm:h-[18px]"/> <span className="hidden sm:inline">Aggiungi Voce</span><span className="sm:hidden">Voce</span>
+                        </button>
+                        <button onClick={addExtraItem} className="flex justify-center items-center gap-1 sm:gap-2 bg-orange-500 hover:bg-orange-600 text-white px-2 sm:px-4 py-2 rounded-lg font-medium transition-colors text-xs sm:text-sm w-full lg:w-auto">
+                        <Icon name="plus" size={16} className="sm:w-[18px] sm:h-[18px]"/> <span className="hidden sm:inline">Spesa Extra</span><span className="sm:hidden">Extra</span>
+                        </button>
+                    </div>
+                    </div>
+
+                    {/* Gestione Viste SAL */}
+                    <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center bg-gray-50 p-3 sm:p-4 rounded-xl border border-gray-200 mb-4 sm:mb-6 gap-3">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 w-full md:w-auto">
+                        <div className="flex items-center gap-2">
+                            <Icon name="layers" size={18} className="text-gray-500 shrink-0" />
+                            <span className="font-semibold text-gray-700 text-sm whitespace-nowrap">Vista:</span>
+                        </div>
+                        <select 
+                        value={activeSalView}
+                        onChange={(e) => setActiveSalView(e.target.value === "ALL" ? "ALL" : Number(e.target.value))}
+                        className="w-full sm:w-auto border-gray-300 rounded-lg text-sm py-2 pl-3 pr-8 focus:ring-blue-500 focus:border-blue-500 font-medium bg-white shadow-sm"
+                        >
+                        <option value="ALL">Riepilogo (Tutti i SAL)</option>
+                        {sals.map(sal => (
+                            <option key={sal} value={sal}>SAL n° {sal}</option>
+                        ))}
+                        </select>
+                    </div>
+                    
+                    <button 
+                        onClick={createNewSal}
+                        className="px-4 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors text-sm shadow-sm w-full md:w-auto"
+                    >
+                        + Crea nuovo SAL {sals.length > 0 ? Math.max(...sals) + 1 : 1}
+                    </button>
+                    </div>
+
+                    {/* Totali Card */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6">
+                    <div className="bg-white p-3 sm:p-4 rounded-lg border border-gray-100 shadow-sm flex flex-col justify-center">
+                        <p className="text-xs sm:text-sm text-gray-500 font-medium mb-1">Totale Progetto + Extra (Previsto)</p>
+                        <p className="text-xl sm:text-2xl font-bold text-gray-900 mb-1">{formatCurrency(totals.previsto)}</p>
+                        <div className="flex flex-col text-[10px] sm:text-xs text-gray-500">
+                            <span>Progetto Base: {formatCurrency(totals.previstoBase)}</span>
+                            <span className="text-orange-500 font-medium">Extra: +{formatCurrency(totals.previstoExtra)}</span>
+                        </div>
+                    </div>
+                    <div className="bg-blue-50 p-3 sm:p-4 rounded-lg border border-blue-100 shadow-sm flex flex-col justify-center">
+                        <p className="text-xs sm:text-sm text-blue-600 font-medium mb-1">
+                        {activeSalView === "ALL" ? "Lordo Eseguito (Complessivo)" : `Lordo SAL ${activeSalView} (Complessivo)`}
+                        </p>
+                        <p className="text-xl sm:text-2xl font-bold text-blue-700 mb-1">{formatCurrency(totals.eseguito)}</p>
+                        <div className="flex flex-col text-[10px] sm:text-xs text-gray-500">
+                        <span>Lordo Base: {formatCurrency(totals.eseguitoBase)}</span>
+                        <span className="text-orange-500 font-medium">Lordo Extra: +{formatCurrency(totals.eseguitoExtra)}</span>
+                        </div>
+                    </div>
+                    <div className="bg-green-50 p-3 sm:p-4 rounded-lg border border-green-100 flex flex-col justify-center shadow-sm sm:col-span-2 lg:col-span-1">
+                        <div className="flex justify-between items-end mb-2">
+                        <p className="text-xs sm:text-sm text-green-700 font-medium">
+                            {activeSalView === "ALL" ? "Avanzamento Lavori" : `Incidenza SAL ${activeSalView}`}
+                        </p>
+                        <p className="text-lg sm:text-xl font-bold text-green-700">{totals.percentuale}%</p>
+                        </div>
+                        <div className="w-full bg-green-200 rounded-full h-2 sm:h-2.5">
+                        <div className="bg-green-600 h-2 sm:h-2.5 rounded-full" style={{ width: `${totals.percentuale}%` }}></div>
+                        </div>
+                    </div>
+                    </div>
+
+                    {/* Barra di Ricerca Globale */}
+                    <div className="mt-4 sm:mt-6 border-t border-gray-100 pt-4">
+                        <div className="relative max-w-md">
+                        <Icon name="search" size={18} className="absolute left-3 top-2.5 text-gray-400" />
+                        <input 
+                            type="text" 
+                            placeholder="Cerca un codice tariffa (es. SIC24 o EXTRA)..." 
+                            value={searchCodice}
+                            onChange={(e) => setSearchCodice(e.target.value)}
+                            className="w-full pl-10 pr-10 py-2 text-sm font-normal border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
+                        />
+                        {searchCodice && (
+                            <button 
+                            onClick={() => setSearchCodice("")} 
+                            className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-700 focus:outline-none bg-gray-200 rounded-full p-0.5"
+                            title="Azzera ricerca"
+                            >
+                            <Icon name="x" size={14} />
+                            </button>
+                        )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Dati: Tabella su Desktop, Lista di Card su Mobile */}
+                <div className="max-w-7xl mx-auto bg-transparent sm:bg-white sm:rounded-xl sm:shadow-sm sm:border sm:border-gray-200 overflow-hidden">
+                    
+                    {/* === VISUALIZZAZIONE MOBILE === */}
+                    <div className="block lg:hidden space-y-3">
+                        {filteredItems.length > 0 ? (
+                            filteredItems.map((item) => {
+                                const previstoNum = parseFloat(item.importoPrevisto) || 0;
+                                const totalItemEseguito = getItemTotalEseguito(item);
+                                const isCompletato = totalItemEseguito >= previstoNum && previstoNum > 0;
+                                const isExtra = isExtraItem(item.codice);
+
+                                return (
+                                    <div key={item.id} className={`bg-white rounded-xl shadow-sm border p-4 ${isExtra ? 'border-orange-200 bg-orange-50/20' : (isCompletato ? 'border-green-200 bg-green-50/10' : 'border-gray-200')}`}>
+                                        
+                                        <div className="flex justify-between items-start mb-3 border-b border-gray-100 pb-2">
+                                            <div className="flex-1 mr-2">
+                                                {item.isEditing ? (
+                                                    <input type="text" value={item.codice} onChange={(e) => handleItemChange(item.id, 'codice', e.target.value)} className="w-full border border-blue-300 rounded p-1.5 focus:ring-2 focus:ring-blue-500 text-sm font-mono" placeholder="Codice" />
+                                                ) : (
+                                                    <span className={`font-mono text-sm px-2 py-1 rounded font-semibold ${isExtra ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-700'}`}>{item.codice || 'Senza Codice'}</span>
+                                                )}
+                                            </div>
+                                            <div className="flex gap-1">
+                                                <button onClick={() => toggleEdit(item.id)} className={`p-2 rounded-md ${item.isEditing ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                                                    {item.isEditing ? <Icon name="save" size={16} /> : <Icon name="pencil" size={16} />}
+                                                </button>
+                                                <button onClick={() => deleteItem(item.id)} className="p-2 bg-red-50 text-red-600 rounded-md">
+                                                    <Icon name="trash" size={16} />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="mb-3">
+                                            {item.isEditing ? (
+                                                <textarea value={item.descrizione} onChange={(e) => handleItemChange(item.id, 'descrizione', e.target.value)} className="w-full border border-blue-300 rounded p-2 text-sm min-h-[80px]" placeholder="Descrizione..." />
+                                            ) : (
+                                                <p className="text-sm text-gray-700 line-clamp-3">{item.descrizione}</p>
+                                            )}
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-3 mb-3 bg-gray-50 p-2 rounded-lg">
+                                            <div>
+                                                <span className="text-[10px] uppercase text-gray-500 font-semibold block mb-1">Imp. Previsto</span>
+                                                {item.isEditing ? (
+                                                    <input type="number" step="0.01" value={item.importoPrevisto ?? ''} onChange={(e) => handleItemChange(item.id, 'importoPrevisto', e.target.value)} className="w-full border border-blue-300 rounded p-1.5 text-right text-sm" />
+                                                ) : (
+                                                    <span className={`font-medium ${isExtra ? 'text-orange-700' : 'text-gray-700'}`}>{formatCurrency(previstoNum)}</span>
+                                                )}
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="text-[10px] uppercase text-gray-500 font-semibold block mb-1">
+                                                    {activeSalView === "ALL" ? "Eseguito Tot." : `Eseguito SAL ${activeSalView}`}
+                                                </span>
+                                                {activeSalView === "ALL" ? (
+                                                    <>
+                                                        <input 
+                                                            type="number" step="0.01" value={totalItemEseguito || ''} 
+                                                            onChange={(e) => handleTotalChange(item.id, e.target.value)}
+                                                            className={`w-full border rounded p-1.5 text-right text-sm font-bold ${isCompletato && !isExtra ? 'border-green-400 bg-green-50 text-green-700' : (isExtra ? 'border-orange-300 text-orange-700' : 'border-blue-300 text-blue-700')}`}
+                                                            placeholder="0.00"
+                                                        />
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <input 
+                                                            type="number" step="0.01" value={item.eseguiti?.[activeSalView] ?? ''} 
+                                                            onChange={(e) => handleSalChange(item.id, activeSalView, e.target.value)}
+                                                            className={`w-full border rounded p-1.5 text-right text-sm ${isExtra ? 'border-orange-300 focus:ring-orange-500' : 'border-blue-300 focus:ring-blue-500'}`}
+                                                            placeholder="0.00"
+                                                        />
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="mb-3 px-1">
+                                            <div className="flex justify-between text-[10px] text-gray-500 mb-1">
+                                                <span>Stato avanzamento voce</span>
+                                                <span>{((totalItemEseguito / previstoNum) * 100 || 0).toFixed(0)}%</span>
+                                            </div>
+                                            <div className="w-full bg-gray-200 rounded-full h-1.5">
+                                                <div className={`h-1.5 rounded-full ${isCompletato ? 'bg-green-500' : (isExtra ? 'bg-orange-500' : 'bg-blue-500')}`} style={{ width: `${previstoNum > 0 ? Math.min((totalItemEseguito / previstoNum) * 100, 100) : 0}%` }}></div>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <textarea value={item.note} onChange={(e) => handleItemChange(item.id, 'note', e.target.value)} className="w-full border border-gray-200 rounded p-2 text-xs text-gray-600 bg-transparent resize-y min-h-[40px]" placeholder="Aggiungi nota a questa voce..." />
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <div className="bg-white p-8 text-center text-gray-500 rounded-xl border border-gray-200">
+                                Nessuna voce trovata per il codice "{searchCodice}".
+                            </div>
+                        )}
+                    </div>
+
+                    {/* === VISUALIZZAZIONE DESKTOP === */}
+                    <div className="hidden lg:block overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                        <tr className="bg-gray-100 text-gray-700 text-sm border-b border-gray-200">
+                            <th className="p-4 font-semibold w-28 align-top">Codice</th>
+                            <th className="p-4 font-semibold min-w-[250px] align-top">Descrizione Lavori</th>
+                            <th className="p-4 font-semibold w-36 text-right align-top">Importo Previsto</th>
+                            <th className="p-4 font-semibold w-40 text-right align-top">
+                            {activeSalView === "ALL" ? "Eseguito Totale" : `Eseguito SAL ${activeSalView}`}
+                            </th>
+                            <th className="p-4 font-semibold w-80 align-top">Note</th>
+                            <th className="p-4 font-semibold w-24 text-center align-top">Azioni</th>
+                        </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 text-sm">
+                        {filteredItems.length > 0 ? (
+                            filteredItems.map((item) => {
+                            const previstoNum = parseFloat(item.importoPrevisto) || 0;
+                            const totalItemEseguito = getItemTotalEseguito(item);
+                            const isCompletato = totalItemEseguito >= previstoNum && previstoNum > 0;
+                            const isExtra = isExtraItem(item.codice);
+                            
+                            return (
+                                <tr key={item.id} className={`hover:bg-gray-50 transition-colors ${isExtra ? 'bg-orange-50/20' : (isCompletato ? 'bg-green-50/30' : '')}`}>
+                                
+                                <td className="p-4 align-top">
+                                    {item.isEditing ? (
+                                    <input type="text" value={item.codice} onChange={(e) => handleItemChange(item.id, 'codice', e.target.value)} className="w-full border border-blue-300 rounded p-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                                    ) : (
+                                    <span className={`font-mono text-xs px-2 py-1 rounded ${isExtra ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-600'}`}>{item.codice || '-'}</span>
+                                    )}
+                                </td>
+
+                                <td className="p-4 align-top">
+                                    {item.isEditing ? (
+                                    <textarea value={item.descrizione} onChange={(e) => handleItemChange(item.id, 'descrizione', e.target.value)} className="w-full border border-blue-300 rounded p-1.5 text-sm focus:outline-none min-h-[60px]" />
+                                    ) : (
+                                    <p className="text-gray-800 line-clamp-3" title={item.descrizione}>{item.descrizione}</p>
+                                    )}
+                                </td>
+
+                                <td className="p-4 align-top text-right">
+                                    {item.isEditing ? (
+                                    <input type="number" step="0.01" value={item.importoPrevisto ?? ''} onChange={(e) => handleItemChange(item.id, 'importoPrevisto', e.target.value)} className="w-full border border-blue-300 rounded p-1.5 text-right focus:outline-none" />
+                                    ) : (
+                                    <span className={`font-medium ${isExtra ? 'text-orange-700' : 'text-gray-700'}`}>{formatCurrency(previstoNum)}</span>
+                                    )}
+                                </td>
+
+                                <td className="p-4 align-top text-right">
+                                    <div className="flex flex-col items-end gap-1">
+                                        {activeSalView === "ALL" ? (
+                                        <>
+                                            <input 
+                                            type="number" 
+                                            step="0.01"
+                                            value={totalItemEseguito || ''} 
+                                            onChange={(e) => handleTotalChange(item.id, e.target.value)}
+                                            className={`w-full border rounded p-1.5 text-right font-bold focus:outline-none focus:ring-2 ${isCompletato && !isExtra ? 'border-green-400 bg-green-50 text-green-700 focus:ring-green-500' : (isExtra ? 'border-orange-300 text-orange-700 focus:ring-orange-500' : 'border-blue-300 focus:ring-blue-500 text-blue-700')}`}
+                                            placeholder="0.00"
+                                            />
+                                            {sals.length > 1 && (
+                                            <span className="text-[10px] text-gray-500 whitespace-nowrap">
+                                                Aggiorna l'ultimo SAL
+                                            </span>
+                                            )}
+                                        </>
+                                        ) : (
+                                        <>
+                                            <input 
+                                            type="number" 
+                                            step="0.01"
+                                            value={item.eseguiti?.[activeSalView] ?? ''} 
+                                            onChange={(e) => handleSalChange(item.id, activeSalView, e.target.value)}
+                                            className={`w-full border rounded p-1.5 text-right focus:outline-none focus:ring-2 ${isExtra ? 'border-orange-300 focus:ring-orange-500' : 'border-blue-300 focus:ring-blue-500'}`}
+                                            placeholder="0.00"
+                                            />
+                                            <span className="text-[10px] text-gray-500 whitespace-nowrap">
+                                            Totale attuale: {formatCurrency(totalItemEseguito)}
+                                            </span>
+                                        </>
+                                        )}
+                                        
+                                        <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1" title={`${((totalItemEseguito / previstoNum) * 100 || 0).toFixed(0)}%`}>
+                                        <div className={`h-1.5 rounded-full ${isCompletato ? 'bg-green-500' : (isExtra ? 'bg-orange-500' : 'bg-blue-500')}`} style={{ width: `${previstoNum > 0 ? Math.min((totalItemEseguito / previstoNum) * 100, 100) : 0}%` }}></div>
+                                        </div>
+                                    </div>
+                                </td>
+
+                                <td className="p-4 align-top">
+                                    <textarea value={item.note} onChange={(e) => handleItemChange(item.id, 'note', e.target.value)} className="w-full border border-gray-200 rounded p-1.5 text-sm text-gray-600 focus:outline-none focus:border-blue-400 bg-transparent resize-y min-h-[40px]" placeholder="Aggiungi nota..." />
+                                </td>
+
+                                <td className="p-4 align-top text-center">
+                                    <div className="flex justify-center items-center gap-2">
+                                    <button onClick={() => toggleEdit(item.id)} className={`p-1.5 rounded-md transition-colors ${item.isEditing ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-blue-600'}`}>
+                                        {item.isEditing ? <Icon name="save" size={16} /> : <Icon name="pencil" size={16} />}
+                                    </button>
+                                    <button onClick={() => deleteItem(item.id)} className="p-1.5 bg-red-50 text-red-600 rounded-md hover:bg-red-100 transition-colors">
+                                        <Icon name="trash" size={16} />
+                                    </button>
+                                    </div>
+                                </td>
+                                </tr>
+                            );
+                            })
+                        ) : (
+                            <tr>
+                            <td colSpan="6" className="p-8 text-center text-gray-500">
+                                Nessuna voce trovata per il codice "{searchCodice}".
+                            </td>
+                            </tr>
+                        )}
+                        </tbody>
+                        
+                        <tfoot className="bg-gray-50 font-bold border-t-2 border-gray-200 text-gray-800">
+                        {/* Riga Progetto Base */}
+                        <tr>
+                            <td colSpan="2" className="p-2 pr-4 text-right uppercase text-xs tracking-wider text-gray-500">
+                            {activeSalView === "ALL" ? "Totale Progetto Base" : `Progetto Base SAL ${activeSalView}`}
+                            </td>
+                            <td className="p-2 text-right text-gray-600">{formatCurrency(totals.previstoBase)}</td>
+                            <td className="p-2 text-right text-gray-600">{formatCurrency(totals.eseguitoBase)}</td>
+                            <td colSpan="2" className="p-2"></td>
+                        </tr>
+
+                        {/* Riga Spese Extra (visibile solo se esistono) */}
+                        {(totals.previstoExtra > 0 || totals.eseguitoExtra > 0) && (
+                            <tr>
+                                <td colSpan="2" className="p-2 pr-4 text-right uppercase text-xs tracking-wider text-orange-500">
+                                {activeSalView === "ALL" ? "Totale Spese Extra" : `Spese Extra SAL ${activeSalView}`}
+                                </td>
+                                <td className="p-2 text-right text-orange-600">{formatCurrency(totals.previstoExtra)}</td>
+                                <td className="p-2 text-right text-orange-600">{formatCurrency(totals.eseguitoExtra)}</td>
+                                <td colSpan="2" className="p-2"></td>
+                            </tr>
+                        )}
+
+                        {/* Riga Totale Complessivo */}
+                        <tr className="border-t border-gray-200 bg-gray-100">
+                            <td colSpan="2" className="p-3 pr-4 text-right uppercase text-xs tracking-wider text-gray-700 font-extrabold">
+                            {activeSalView === "ALL" ? "Totale Complessivo (Lordo)" : `Totale Lordo SAL ${activeSalView}`}
+                            </td>
+                            <td className="p-3 text-right font-extrabold">{formatCurrency(totals.previsto)}</td>
+                            <td className="p-3 text-right text-gray-800 font-extrabold">{formatCurrency(totals.eseguito)}</td>
+                            <td colSpan="2" className="p-3">
+                            <div className="flex items-center gap-2 text-green-600 text-sm">
+                                <Icon name="check-circle" size={18}/> {totals.percentuale}% {activeSalView === "ALL" ? "Completato" : "Incidenza"}
+                            </div>
+                            </td>
+                        </tr>
+
+                        {/* Riga Sconto 7% */}
+                        <tr className="bg-red-50/50 border-t border-gray-100">
+                            <td colSpan="3" className="p-2 pr-4 text-right uppercase text-xs tracking-wider text-red-500 font-medium">
+                            Sconto Pattuito (7%)
+                            </td>
+                            <td className="p-2 pr-4 text-right text-red-600 font-medium">
+                            - {formatCurrency(totals.scontoEseguito)}
+                            </td>
+                            <td colSpan="2" className="p-2"></td>
+                        </tr>
+
+                        {/* Riga Netto da Pagare */}
+                        <tr className="bg-blue-50/50 border-t border-gray-200">
+                            <td colSpan="3" className="p-3 pr-4 text-right uppercase text-sm tracking-wider text-blue-700 font-extrabold">
+                            Totale da Pagare (Netto)
+                            </td>
+                            <td className="p-3 pr-4 text-right text-blue-700 text-lg font-extrabold">
+                            {formatCurrency(totals.eseguitoNetto)}
+                            </td>
+                            <td colSpan="2" className="p-3"></td>
+                        </tr>
+                        </tfoot>
+                    </table>
+                    </div>
+
+                    {/* Totali Fissi a fondo pagina SOLO per MOBILE */}
+                    <div className="block lg:hidden mt-6 bg-white border-t-4 border-blue-500 p-4 rounded-t-xl shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] sticky bottom-0 z-10">
+                        <h3 className="text-xs uppercase text-gray-500 font-bold mb-2">Riepilogo Finale</h3>
+                        <div className="flex justify-between items-center text-sm border-b border-gray-100 pb-2 mb-2">
+                            <span className="text-gray-600">Lordo Complessivo {activeSalView !== "ALL" && `SAL ${activeSalView}`}</span>
+                            <span className="font-semibold">{formatCurrency(totals.eseguito)}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-sm border-b border-gray-100 pb-2 mb-2 text-red-500">
+                            <span>Sconto 7%</span>
+                            <span>- {formatCurrency(totals.scontoEseguito)}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                            <span className="font-bold text-blue-700">NETTO DA PAGARE</span>
+                            <span className="font-bold text-xl text-blue-700">{formatCurrency(totals.eseguitoNetto)}</span>
+                        </div>
+                    </div>
+
+                </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<SalDashboard />);
+    </script>
+</body>
+</html>
