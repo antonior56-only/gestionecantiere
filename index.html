@@ -57,13 +57,13 @@
             { id: 9, codice: "SIC24_20.14.3", descrizione: "Prova di piegamento e raddrizzamento. (per ogni terna).", importoPrevisto: 310.50, note: "", isEditing: false },
             { id: 10, codice: "SIC24_2.3.1.1", descrizione: "Vespaio di pietrame calcareo, lavico o arenario forte, da utilizzarsi per sottopavimentazione, collocato con mezzo meccanico e formato con pietrame idoneamente disposto.", importoPrevisto: 1103.61, note: "", isEditing: false },
             { id: 11, codice: "SIC24_19.10.1 2", descrizione: "Fornitura e posa in opera di tubi di drenaggio in barre o in rotoli in polietilene ad alta densità microfessurati per la captazione ed evacuazione di acqua.", importoPrevisto: 517.20, note: "", isEditing: false },
-            { id: 12, codice: "SIC24_3.1.1.4", descrizione: "Conglomerato cementizio per strutture non armate o debolmente armate (magrone e battuti).", importoPrevisto: 1301.12, note: "", isEditing: false },
-            { id: 13, codice: "SIC24_3.1.2.1", descrizione: "Conglomerato cementizio per strutture in calcestruzzo armato in ambiente secco/umido (fondazioni C25/30).", importoPrevisto: 1590.25, note: "", isEditing: false },
-            { id: 14, codice: "SIC24_3.1.2.9", descrizione: "Conglomerato cementizio per strutture in calcestruzzo armato in ambiente secco/umido (elevazione C25/30).", importoPrevisto: 556.23, note: "", isEditing: false },
-            { id: 15, codice: "SIC24_3.1.1.6", descrizione: "Conglomerato cementizio per strutture non armate o debolmente armate (fondazione C20/25).", importoPrevisto: 2923.02, note: "", isEditing: false },
+            { id: 12, codice: "SIC24_3.1.1.4", descrizione: "Conglomerato cementizio per structures non armate o debolmente armate (magrone e battuti).", importoPrevisto: 1301.12, note: "", isEditing: false },
+            { id: 13, codice: "SIC24_3.1.2.1", descrizione: "Conglomerato cementizio per structures in calcestruzzo armato in ambiente secco/umido (fondazioni C25/30).", importoPrevisto: 1590.25, note: "", isEditing: false },
+            { id: 14, codice: "SIC24_3.1.2.9", descrizione: "Conglomerato cementizio per structures in calcestruzzo armato in ambiente secco/umido (elevazione C25/30).", importoPrevisto: 556.23, note: "", isEditing: false },
+            { id: 15, codice: "SIC24_3.1.1.6", descrizione: "Conglomerato cementizio per structures non armate o debolmente armate (fondazione C20/25).", importoPrevisto: 2923.02, note: "", isEditing: false },
             { id: 16, codice: "SIC24_3.2.1.1", descrizione: "Acciaio in barre a aderenza migliorata Classi B450C controllato in stabilimento, per lavori in cemento armato.", importoPrevisto: 3371.26, note: "", isEditing: false },
             { id: 17, codice: "SIC24_3.2.4", descrizione: "Fornitura e collocazione di rete d'acciaio elettrosaldata a fili nervati ad aderenza migliorata Classi B450C.", importoPrevisto: 1615.63, note: "", isEditing: false },
-            { id: 18, codice: "SIC24_3.2.2", descrizione: "Casseforme per strutture intelaiate in cemento armato, di qualsiasi forma e dimensione.", importoPrevisto: 3210.38, note: "", isEditing: false },
+            { id: 18, codice: "SIC24_3.2.2", descrizione: "Casseforme per structures intelaiate in cemento armato, di qualsiasi forma e dimensione.", importoPrevisto: 3210.38, note: "", isEditing: false },
             { id: 19, codice: "SIC24_12.1.3", descrizione: "Fornitura e posa in opera di impermeabilizzazione con guaina prefabbricata a base di bitume.", importoPrevisto: 258.94, note: "", isEditing: false },
             { id: 20, codice: "DB1.5.01.009.a", descrizione: "[B15009a] Isolamento termico in estradosso di coperture piane a terrazzo mediante pannelli rigidi XPS spessore 30 mm.", importoPrevisto: 184.22, note: "", isEditing: false },
             { id: 21, codice: "DB1.5.01.009.b", descrizione: "[B15009b] Isolamento termico XPS sovrapprezzo per ogni cm in più di spessore fino a 60 mm.", importoPrevisto: 0.00, note: "", isEditing: false },
@@ -165,7 +165,7 @@
                 } catch (e) { console.error("Errore salvataggio Voci", e); }
             }, [items]);
 
-            // NUOVO: Salvataggio automatico e istantaneo delle chiavi Cloud
+            // Salvataggio automatico e istantaneo delle chiavi Cloud
             useEffect(() => {
                 try {
                     if (cloudConfig.binId !== '' || cloudConfig.apiKey !== '') {
@@ -183,7 +183,6 @@
 
             // FUNZIONI CLOUD
             const saveCloudSettings = () => {
-                // Il salvataggio ora è già gestito in automatico dal useEffect, qui diamo solo il feedback visivo
                 alert('Chiavi di accesso Cloud memorizzate in modo permanente sul dispositivo!');
                 loadFromCloud(false); 
             };
@@ -729,7 +728,6 @@
                             </div>
                         </div>
                         
-                        {/* NUOVO POSIZIONAMENTO E STILE PER IL PULSANTE CLOUD */}
                         <button 
                             onClick={() => setShowCloudSettings(true)} 
                             className={`mt-2 sm:mt-0 sm:ml-4 flex justify-center items-center gap-2 px-4 py-2 rounded-lg font-bold transition-all shadow-md border-2 ${
@@ -740,7 +738,7 @@
                             title="Impostazioni Sincronizzazione Cloud"
                         >
                             <span className="text-lg">☁️</span> 
-                            <span>Configura Cloud</span>
+                            <span>{(cloudConfig.apiKey && cloudConfig.binId) ? "Cloud Attivo" : "Configura Cloud"}</span>
                             {(cloudConfig.apiKey && cloudConfig.binId) && <Icon name="check-circle" size={16} className="text-indigo-200 ml-1"/>}
                         </button>
                     </div>
@@ -1229,9 +1227,3 @@
     </script>
 </body>
 </html>
-
-
-
-
-
-```
