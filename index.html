@@ -351,6 +351,16 @@
                 return 'todo';
             };
 
+            // Stato di avanzamento (todo/doing/done) calcolato per QUALSIASI voce,
+            // incluse PRE ed Extra: usato dai filtri rapidi così funzionano in ogni scheda.
+            const getProgressStatus = (item) => {
+                const prev = parseFloat(item.importoPrevisto) || 0;
+                const eseg = getItemTotalEseguito(item);
+                if (prev > 0 && eseg >= prev - 0.005) return 'done';
+                if (eseg > 0) return 'doing';
+                return 'todo';
+            };
+
             const statusCounts = useMemo(() => {
                 const baseList = mainTab === 'PRE_COSTRUZIONE' 
                     ? items.filter(item => isPreItem(item.codice))
@@ -358,9 +368,13 @@
                 
                 const c = { all: baseList.length, todo: 0, doing: 0, done: 0, extra: 0, pre: 0 };
                 items.forEach(item => {
-                    const s = getItemStatus(item);
-                    if (s === 'pre' && mainTab === 'PRE_COSTRUZIONE') c.pre++;
-                    if (mainTab === 'CANTIERE') {
+                    if (mainTab === 'PRE_COSTRUZIONE') {
+                        if (isPreItem(item.codice)) {
+                            c.pre++;
+                            c[getProgressStatus(item)]++; // conteggi reali per i filtri in questa scheda
+                        }
+                    } else if (mainTab === 'CANTIERE') {
+                        const s = getItemStatus(item);
                         if (s === 'extra') c.extra++;
                         else if (s !== 'pre' && (activeSalView === "ALL" || !showOnlyExtra)) c[s]++;
                     }
@@ -448,6 +462,8 @@
                 const totaleSconto = base.eseguito * 0.07;
                 const baseNetto = base.eseguito - totaleSconto;
 
+                // Recupero anticipo in due metà (coerente con i SAL e con il contratto):
+                // metà sul SAL 1, metà sull'ultimo SAL quando viene marcato.
                 let anticipoRecuperato = 0;
                 if (sals.includes(1)) anticipoRecuperato += RECUPERO_RATA;
                 if (ultimoSalId && sals.includes(ultimoSalId)) anticipoRecuperato += RECUPERO_RATA;
@@ -523,7 +539,10 @@
                 let anticipoIvato = 0;
                 
                 if (activeSalView === "ALL") {
-                    anticipoIvato = 5000 * 1.10; // Intero Acconto sempre versato (5500)
+                    // Coerente con totals: si attribuisce a "Io" solo l'anticipo effettivamente recuperato
+                    // (metà se esiste il SAL 1, l'altra metà se è impostato l'ultimo SAL).
+                    if (sals.includes(1)) anticipoIvato += RECUPERO_RATA_IVATA;
+                    if (ultimoSalId && sals.includes(ultimoSalId)) anticipoIvato += RECUPERO_RATA_IVATA;
                 } else {
                     if (activeSalView === 1) anticipoIvato += RECUPERO_RATA_IVATA;
                     if (ultimoSalId && activeSalView === ultimoSalId) anticipoIvato += RECUPERO_RATA_IVATA;
@@ -553,7 +572,12 @@
                 }
 
                 if (statusFilter.length > 0) {
-                    result = result.filter(item => statusFilter.includes(getItemStatus(item)));
+                    result = result.filter(item => {
+                        return statusFilter.some(f => {
+                            if (f === 'extra') return isExtraItem(item.codice);
+                            return getProgressStatus(item) === f; // todo | doing | done, valido anche per PRE/Extra
+                        });
+                    });
                 }
 
                 if (hideZero) {
@@ -1002,13 +1026,13 @@
                                     </p>
                                     <div className="flex flex-col text-[11px] sm:text-xs text-gray-700 space-y-1">
                                         <div className="flex justify-between items-center border-b border-gray-100 pb-1">
-                                            <span className="font-semibold text-blue-600">Io:</span><span className="font-bold text-blue-700">{formatCurrency(paymentTotals.io)}</span>
+                                            <span className="font-semibold text-blue-600">Io:</span><span className="font-bold text-blue-700">{formatCurrency(mainTab === 'CANTIERE' && activeSalView === "ALL" ? (globalTotals.baseEffettivo.io + globalTotals.extra.io) : paymentTotals.io)}</span>
                                         </div>
                                         <div className="flex justify-between items-center border-b border-gray-100 pb-1">
-                                            <span className="font-semibold text-pink-600">Silvia:</span><span className="font-bold text-pink-600">{formatCurrency(paymentTotals.silvia)}</span>
+                                            <span className="font-semibold text-pink-600">Silvia:</span><span className="font-bold text-pink-600">{formatCurrency(mainTab === 'CANTIERE' && activeSalView === "ALL" ? (globalTotals.baseEffettivo.silvia + globalTotals.extra.silvia) : paymentTotals.silvia)}</span>
                                         </div>
                                         <div className="flex justify-between items-center pt-1">
-                                            <span className="text-gray-500">Da assegnare:</span><span className="text-gray-500 font-medium">{formatCurrency(paymentTotals.nonAssegnato)}</span>
+                                            <span className="text-gray-500">Da assegnare:</span><span className="text-gray-500 font-medium">{formatCurrency(mainTab === 'CANTIERE' && activeSalView === "ALL" ? (globalTotals.baseEffettivo.nd + globalTotals.extra.nd) : paymentTotals.nonAssegnato)}</span>
                                         </div>
                                         {mainTab === 'CANTIERE' && (
                                             <div className="text-[9px] text-gray-400 leading-tight pt-1">
