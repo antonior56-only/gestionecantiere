@@ -204,9 +204,6 @@
             const fileInputRef = useRef(null);
 
             // --- FORMATO DATI SALVATI ---
-            // Da ora il salvataggio (backup e Cloud) include anche il flag "Ultimo S.A.L.",
-            // che incide sul recupero dell'anticipo. Compatibile all'indietro: i vecchi
-            // backup/dati Cloud sono un semplice array di voci e vengono ancora letti.
             const creaPayload = (voci, ultimo) => ({
                 formato: 2,
                 items: voci !== undefined ? voci : items,
@@ -214,27 +211,24 @@
                 exportedAt: new Date().toISOString()
             });
             const leggiPayload = (raw) => Array.isArray(raw)
-                ? { items: raw, ultimoSalId: undefined }            // formato vecchio: nessun flag salvato
+                ? { items: raw, ultimoSalId: undefined }
                 : { items: Array.isArray(raw?.items) ? raw.items : null, ultimoSalId: raw?.ultimoSalId ?? null };
 
             const [lastSavedData, setLastSavedData] = useState(() => JSON.stringify({ items, ultimoSalId }));
             const snapshotDati = useMemo(() => JSON.stringify({ items, ultimoSalId }), [items, ultimoSalId]);
             const hasUnsavedChanges = snapshotDati !== lastSavedData;
 
-            // Ultimo salvataggio riuscito: orario + destinazione (Cloud o file).
-            // Conservato sul dispositivo, così resta visibile anche riaprendo l'app.
             const [ultimoSalvataggio, setUltimoSalvataggio] = useState(() => {
                 try {
                     const saved = localStorage.getItem('sal-ultimo-salvataggio');
                     if (saved) {
                         const p = JSON.parse(saved);
-                        if (p && p.quando) return p;   // { quando: ISO, dove: 'Cloud' | 'file' }
+                        if (p && p.quando) return p;
                     }
                 } catch (e) {}
                 return null;
             });
 
-            // Messaggio temporaneo a comparsa (3,5 s), come showMsg di "Casa in Campagna"
             const [messaggioTemporaneo, setMessaggioTemporaneo] = useState('');
             const timerMsgRef = useRef(null);
             const showMsg = (txt) => {
@@ -249,7 +243,6 @@
                 try { localStorage.setItem('sal-ultimo-salvataggio', JSON.stringify(info)); } catch (e) {}
             };
 
-            // Testo dell'ultimo salvataggio, formato identico a "Casa in Campagna"
             const testoUltimoSalvataggio = (() => {
                 if (!ultimoSalvataggio || !ultimoSalvataggio.quando) return 'Nessun salvataggio su Cloud o file finora';
                 const d = new Date(ultimoSalvataggio.quando);
@@ -277,31 +270,18 @@
             }, [snapshotDati, lastSavedData]);
 
             useEffect(() => {
-                try { 
-                    localStorage.setItem('gestione-sal-sals', JSON.stringify(sals)); 
-                } catch (e) {
-                    alert("Attenzione: Spazio di archiviazione esaurito o errore di salvataggio. I dati potrebbero non essere salvati correttamente.");
-                    console.error("LocalStorage error:", e);
-                }
+                try { localStorage.setItem('gestione-sal-sals', JSON.stringify(sals)); } catch (e) { console.error(e); }
             }, [sals]);
 
             useEffect(() => {
-                try { 
-                    localStorage.setItem('gestione-sal-items', JSON.stringify(items)); 
-                } catch (e) {
-                    alert("Attenzione: Spazio di archiviazione esaurito o errore di salvataggio. I dati potrebbero non essere salvati correttamente.");
-                    console.error("LocalStorage error:", e);
-                }
+                try { localStorage.setItem('gestione-sal-items', JSON.stringify(items)); } catch (e) { console.error(e); }
             }, [items]);
 
             useEffect(() => {
                 try {
                     if (cloudConfig.binId !== '' || cloudConfig.apiKey !== '') localStorage.setItem('sal-cloud-config', JSON.stringify(cloudConfig));
                     else localStorage.removeItem('sal-cloud-config');
-                } catch (e) {
-                    alert("Attenzione: Spazio di archiviazione esaurito o errore di salvataggio. I dati potrebbero non essere salvati correttamente.");
-                    console.error("LocalStorage error:", e);
-                }
+                } catch (e) { console.error(e); }
             }, [cloudConfig]);
 
             useEffect(() => {
@@ -312,18 +292,14 @@
                 alert("Chiavi di accesso Cloud memorizzate in modo permanente sul dispositivo!\n\nUsa '⬇️ Scarica Dati' per recuperare i dati dal Cloud oppure '⬆️ Salva Ora' per inviare quelli presenti su questo dispositivo.");
             };
 
-            // Traduce il codice di risposta di JSONBin in un messaggio comprensibile
-            // Testi identici a "Casa in Campagna"
             const cloudErrore = (status, azione) => {
                 switch (status) {
                     case 401:
-                    case 403: return "Chiave API (Master Key) errata o non autorizzata.\nControlla la chiave in \u00ab Configura Cloud \u00bb.";
-                    case 404: return "Bin ID inesistente: nessun contenitore trovato con questo identificativo.\nControlla il Bin ID in \u00ab Configura Cloud \u00bb.";
+                    case 403: return "Chiave API errata o non autorizzata.\nControlla la chiave in \u00ab Configura Cloud \u00bb.";
+                    case 404: return "Bin ID inesistente.\nControlla il Bin ID in \u00ab Configura Cloud \u00bb.";
                     case 429: return "Limite di richieste JSONBin esaurito.\nAttendi qualche minuto e riprova.";
-                    case 400: return "Richiesta non valida (dati o identificativo non corretti).";
-                    default:
-                        if (!status) return "Nessuna connessione a internet, oppure il servizio non risponde.";
-                        return "Errore del servizio Cloud durante " + azione + " (codice " + status + ").";
+                    case 400: return "Richiesta non valida.";
+                    default: return status ? "Errore del servizio Cloud durante " + azione + " (codice " + status + ")." : "Nessuna connessione a internet.";
                 }
             };
 
@@ -351,18 +327,13 @@
                             return { ...cleanItem, eseguiti };
                         });
 
-                        // Se il Cloud è in formato vecchio (senza flag) si mantiene quello locale
                         const nuovoUltimo = ultimoDalCloud !== undefined ? ultimoDalCloud : ultimoSalId;
 
                         if (isSilent) {
                             const cloudString = JSON.stringify({ items: upgradedData, ultimoSalId: nuovoUltimo });
                             const localString = JSON.stringify({ items, ultimoSalId });
                             if (cloudString !== localString) {
-                                const usaCloud = window.confirm(
-                                    "☁️ ATTENZIONE: su questo dispositivo sono presenti dati diversi da quelli salvati sul Cloud.\n\n" +
-                                    "• OK = scarica la versione Cloud (le modifiche locali andranno perse)\n" +
-                                    "• Annulla = mantieni i dati di questo dispositivo"
-                                );
+                                const usaCloud = window.confirm("☁️ ATTENZIONE: Dati diversi sul Cloud.\n• OK = Scarica Cloud\n• Annulla = Mantieni dati attuali");
                                 if (!usaCloud) return; 
                             }
                         }
@@ -373,14 +344,13 @@
                         setActiveSalView("ALL");
                         setEditingId(null);
                         setLastSavedData(JSON.stringify({ items: upgradedData, ultimoSalId: nuovoUltimo }));
-                        if (!isSilent) { alert("Dati scaricati dal Cloud con successo!"); setShowCloudSettings(false); }
+                        if (!isSilent) { alert("Dati scaricati dal Cloud!"); setShowCloudSettings(false); }
                     }
                 } catch (error) {
-                    if (!isSilent) alert("⚠️ Caricamento dal Cloud non riuscito\n\n" + error.message);
+                    if (!isSilent) alert("⚠️ Errore Cloud\n\n" + error.message);
                 } finally { setIsSyncing(false); }
             };
 
-            // Riferimento temporale dei dati sul Cloud (per il controllo anti-sovrascrittura)
             const cloudBaseExportedAtRef = useRef(null);
 
             const saveToCloud = async (dataToSave, isExit = false) => {
@@ -390,7 +360,6 @@
                 }
                 setIsSyncing(true);
                 try {
-                    // Controllo anti-sovrascrittura: se sul Cloud ci sono dati più recenti, chiede conferma
                     try {
                         const chk = await fetch(`https://api.jsonbin.io/v3/b/${cloudConfig.binId}/latest`, {
                             method: 'GET', headers: { 'X-Master-Key': cloudConfig.apiKey }
@@ -399,13 +368,13 @@
                             const chkData = await chk.json();
                             const remoteAt = (chkData.record && chkData.record.exportedAt) ? new Date(chkData.record.exportedAt).getTime() : 0;
                             if (remoteAt && cloudBaseExportedAtRef.current && remoteAt > cloudBaseExportedAtRef.current + 1000) {
-                                if (!window.confirm("⚠️ Sul cloud ci sono dati più recenti, salvati da un altro dispositivo.\n\nSe continui verranno SOVRASCRITTI con i dati di questo dispositivo. Procedere?")) {
+                                if (!window.confirm("⚠️ Sul cloud ci sono dati più recenti. Procedere sovrascrivendo?")) {
                                     setIsSyncing(false);
                                     return false;
                                 }
                             }
                         }
-                    } catch (chkErr) { /* se il controllo fallisce si prosegue comunque col salvataggio */ }
+                    } catch (chkErr) {}
 
                     const res = await fetch(`https://api.jsonbin.io/v3/b/${cloudConfig.binId}`, {
                         method: 'PUT',
@@ -419,19 +388,18 @@
                     registraSalvataggio('cloud');
 
                     if (isExit) {
-                        alert("✅ Salvataggio completato. I dati sono al sicuro. Puoi chiudere manualmente questa scheda (il browser potrebbe bloccare la chiusura automatica).");
+                        alert("✅ Salvataggio completato. Puoi chiudere.");
                         try { window.close(); } catch(e) {}
                     } else {
                         showMsg('☁️ Salvataggio in Cloud completato!');
                     }
                     return true;
                 } catch (e) {
-                    alert("⚠️ Salvataggio sul Cloud non riuscito\n\n" + e.message + "\n\nI dati restano salvati su questo dispositivo.");
+                    alert("⚠️ Errore Cloud\n\n" + e.message);
                     return false;
                 } finally { setIsSyncing(false); }
             };
 
-            // Salva ora: Cloud se configurato, altrimenti backup su file (come saveNow di Casa in Campagna)
             const saveNow = () => {
                 if (cloudConfig.binId && cloudConfig.apiKey) saveToCloud(creaPayload(), false);
                 else handleBackup(false);
@@ -458,11 +426,11 @@
                         }
                         setLastSavedData(currentDataString);
                         registraSalvataggio('file');
-                        alert("✅ Backup locale completato. Il file è stato scaricato. Puoi chiudere manualmente questa scheda (il browser potrebbe bloccare la chiusura automatica).");
+                        alert("✅ Backup completato. Puoi chiudere.");
                         try { window.close(); } catch(e) {}
                     } catch (error) { if (error.name !== 'AbortError') alert("Errore durante il salvataggio locale."); }
                 } else {
-                    alert("Nessuna modifica. Puoi chiudere manualmente questa scheda.");
+                    alert("Nessuna modifica. Puoi chiudere.");
                     try { window.close(); } catch(e) {}
                 }
             };
@@ -601,7 +569,7 @@
                 const ivaBase = imponibileBase > 0 ? imponibileBase * 0.10 : 0;
                 const totaleIvatoBase = imponibileBase + ivaBase;
 
-                const anticipoGiaPagatoIvato = ANTICIPO_IMPONIBILE * 1.10; // 5500
+                const anticipoGiaPagatoIvato = ANTICIPO_IMPONIBILE * 1.10;
                 const totaleSpesaCantiereBase = totaleIvatoBase + anticipoGiaPagatoIvato;
 
                 const fractionIo = base.eseguito > 0 ? (base.io / base.eseguito) : 0;
@@ -663,7 +631,7 @@
                 const fractionSilvia = rawBaseTot > 0 ? (rawBaseSilvia / rawBaseTot) : 0;
                 const fractionNd = rawBaseTot > 0 ? (rawBaseNd / rawBaseTot) : 0;
 
-                const RECUPERO_RATA_IVATA = 2500 * 1.10; // 2750
+                const RECUPERO_RATA_IVATA = 2500 * 1.10;
                 let anticipoIvato = 0;
                 
                 if (activeSalView === "ALL") {
@@ -835,7 +803,11 @@
                     eseguiti: sals.reduce((acc, sal) => ({ ...acc, [sal]: 0 }), {})
                 }]);
                 setSearchCodice(""); setShowOnlyExtra(false); setEditingId(newId);
-                setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 100);
+                setTimeout(() => {
+                    const el = document.getElementById(`item-${newId}`);
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    else window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+                }, 150);
             };
 
             const addExtraItem = () => {
@@ -849,7 +821,11 @@
                     id: newId, codice: `EXTRA-${String(maxNum + 1).padStart(3, '0')}`, descrizione: "", importoPrevisto: "", note: "", pagatoDa: "", eseguiti: { 'EXTRA': 0 }
                 }]);
                 setSearchCodice(""); setShowOnlyExtra(true); setActiveSalView("ALL"); setEditingId(newId);
-                setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 100);
+                setTimeout(() => {
+                    const el = document.getElementById(`item-${newId}`);
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    else window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+                }, 150);
             };
 
             const addPreItem = () => {
@@ -863,7 +839,11 @@
                     id: newId, codice: `PRE-${String(maxNum + 1).padStart(3, '0')}`, descrizione: "", importoPrevisto: "", note: "", pagatoDa: "", eseguiti: { 'PRE': 0 }
                 }]);
                 setSearchCodice(""); setEditingId(newId);
-                setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 100);
+                setTimeout(() => {
+                    const el = document.getElementById(`item-${newId}`);
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    else window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+                }, 150);
             };
 
             const handleBackup = (isExit = false) => {
@@ -877,7 +857,7 @@
                 setLastSavedData(snapshotDati);
                 registraSalvataggio('file');
                 if (isExit) {
-                    alert("✅ Backup locale completato. Il file è stato scaricato. Puoi chiudere manualmente questa scheda (il browser potrebbe bloccare la chiusura automatica).");
+                    alert("✅ Backup completato. Puoi chiudere.");
                     try { window.close(); } catch(e) {}
                 } else {
                     showMsg('✅ Backup scaricato!');
@@ -984,7 +964,6 @@
                         const { isEditing, ...cleanItem } = item;
                         return { ...cleanItem, eseguiti };
                         });
-                        // Backup in formato vecchio (senza flag): si mantiene quello locale
                         const nuovoUltimo = ultimoDalFile !== undefined ? ultimoDalFile : ultimoSalId;
                         setSals(Array.from({length: maxSalFound}, (_, i) => i + 1));
                         setItems(upgradedData); setUltimoSalId(nuovoUltimo); setActiveSalView("ALL"); setEditingId(null);
@@ -1015,7 +994,7 @@
             return (
                 <div className="min-h-screen bg-gray-50 p-2 sm:p-4 md:p-6 lg:p-8 font-sans text-gray-800 relative">
 
-                {/* Fascia di stato salvataggio — identica a "Casa in Campagna" */}
+                {/* Fascia di stato salvataggio */}
                 <div className="sal-save-bar" style={{
                         position: 'sticky', top: 0, zIndex: 900,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1043,7 +1022,7 @@
                     )}
                 </div>
 
-                {/* Messaggio temporaneo (3,5 s) */}
+                {/* Messaggio temporaneo */}
                 {messaggioTemporaneo && (
                     <div style={{
                         position: 'fixed', top: '70px', left: '50%', transform: 'translateX(-50%)',
@@ -1360,7 +1339,7 @@
                     <div className="mx-auto bg-transparent sm:bg-white sm:rounded-xl sm:shadow-sm sm:border sm:border-gray-200 mt-4 relative" style={{ maxWidth: '1500px' }}>
                         
                         {/* Nuova barra sticky per i pulsanti di aggiunta */}
-                        <div className="sticky top-0 z-40 bg-gray-100 sm:bg-white/95 sm:backdrop-blur-md p-3 border-b border-gray-200 flex flex-wrap gap-3 justify-center mb-4 sm:rounded-t-xl shadow-sm transition-all">
+                        <div className="sticky z-40 bg-gray-100 sm:bg-white/95 sm:backdrop-blur-md p-3 border-b border-gray-200 flex flex-wrap gap-3 justify-center mb-4 sm:rounded-t-xl shadow-sm transition-all" style={{ top: '40px' }}>
                             {mainTab === 'CANTIERE' ? (
                                 <>
                                     <button onClick={addItem} className="flex justify-center items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-bold text-sm shadow-md transition-colors"><Icon name="plus" size={18} /> Nuova Voce Base</button>
@@ -1386,7 +1365,7 @@
                                         const perc = previstoNum > 0 ? Math.min((totalItemEseguito / previstoNum) * 100, 100) : 0;
                                         const dotColor = isExtra ? 'bg-orange-500' : (isPre ? 'bg-indigo-500' : (isCompletato ? 'bg-green-500' : (totalItemEseguito > 0 ? 'bg-blue-500' : 'bg-gray-300')));
                                         return (
-                                            <div key={item.id} className={`bg-white rounded-lg border shadow-sm ${isExtra ? 'border-orange-200' : (isPre ? 'border-indigo-200' : (isCompletato ? 'border-green-200' : 'border-gray-200'))}`}>
+                                            <div key={item.id} id={`item-${item.id}`} className={`bg-white rounded-lg border shadow-sm ${isExtra ? 'border-orange-200' : (isPre ? 'border-indigo-200' : (isCompletato ? 'border-green-200' : 'border-gray-200'))}`}>
                                                 <div className="flex items-center gap-3 p-3 cursor-pointer" onClick={() => toggleDescExpand(item.id)}>
                                                     <span className={`w-3 h-3 rounded-full shrink-0 ${dotColor}`}></span>
                                                     <div className="flex-1 min-w-0">
@@ -1422,7 +1401,7 @@
                                     }
 
                                     return (
-                                        <div key={item.id} className={`bg-white rounded-xl shadow-sm border p-4 ${isExtra ? 'border-orange-200 bg-orange-50/20' : (isPre ? 'border-indigo-200 bg-indigo-50/20' : (isCompletato ? 'border-green-200 bg-green-50/10' : 'border-gray-200'))}`}>
+                                        <div key={item.id} id={`item-${item.id}`} className={`bg-white rounded-xl shadow-sm border p-4 ${isExtra ? 'border-orange-200 bg-orange-50/20' : (isPre ? 'border-indigo-200 bg-indigo-50/20' : (isCompletato ? 'border-green-200 bg-green-50/10' : 'border-gray-200'))}`}>
                                             <div className="flex justify-between items-start mb-3 border-b border-gray-100 pb-2">
                                                 <div className="flex-1 mr-2">
                                                     {editingId === item.id ? (
@@ -1502,7 +1481,7 @@
                                 const isPre = isPreItem(item.codice);
                                 
                                 return (
-                                    <tr key={item.id} className={`hover:bg-gray-50 transition-colors ${isExtra ? 'bg-orange-50/20' : (isPre ? 'bg-indigo-50/20' : (isCompletato ? 'bg-green-50/30' : ''))}`}>
+                                    <tr key={item.id} id={`item-${item.id}`} className={`hover:bg-gray-50 transition-colors ${isExtra ? 'bg-orange-50/20' : (isPre ? 'bg-indigo-50/20' : (isCompletato ? 'bg-green-50/30' : ''))}`}>
                                     <td className="px-4 py-3 align-top">
                                         {editingId === item.id ? ( <input type="text" value={item.codice} onChange={(e) => handleItemChange(item.id, 'codice', e.target.value)} className="w-full border border-blue-300 rounded p-1.5 focus:ring-2 focus:ring-blue-500" />
                                         ) : ( <span className={`font-mono text-xs px-2 py-1 rounded ${isExtra ? 'bg-orange-100 text-orange-800' : (isPre ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-600')}`}>{item.codice || '-'}</span> )}
