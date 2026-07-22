@@ -148,12 +148,9 @@
             });
             useEffect(() => {
                 try {
-                    if (ultimoSalId) localStorage.setItem('gestione-sal-ultimo', ultimoSalId);
+                    if (ultimoSalId) salvaInLocale('gestione-sal-ultimo', String(ultimoSalId), true);
                     else localStorage.removeItem('gestione-sal-ultimo');
-                } catch (e) {
-                    alert("Attenzione: Spazio di archiviazione esaurito o errore di salvataggio. I dati potrebbero non essere salvati correttamente.");
-                    console.error("LocalStorage error:", e);
-                }
+                } catch (e) { console.error(e); }
             }, [ultimoSalId]);
             
             const [items, setItems] = useState(() => {
@@ -188,12 +185,7 @@
                 try { return localStorage.getItem('sal-compact-view') === '1'; } catch { return false; }
             });
             useEffect(() => {
-                try { 
-                    localStorage.setItem('sal-compact-view', compactView ? '1' : '0'); 
-                } catch (e) {
-                    alert("Attenzione: Spazio di archiviazione esaurito o errore di salvataggio. I dati potrebbero non essere salvati correttamente.");
-                    console.error("LocalStorage error:", e);
-                }
+                salvaInLocale('sal-compact-view', compactView ? '1' : '0');
             }, [compactView]);
             const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
 
@@ -202,6 +194,27 @@
             }, [activeSalView]);
             
             const fileInputRef = useRef(null);
+
+            // Salvataggio locale protetto: se il browser rifiuta la scrittura (spazio esaurito,
+            // modalità privata, permessi), avvisa UNA sola volta per sessione — altrimenti
+            // l'avviso comparirebbe a ogni tasto premuto, dato che il salvataggio è continuo.
+            const avvisoArchiviazioneMostratoRef = useRef(false);
+            const salvaInLocale = (chiave, valore, critico = false) => {
+                try {
+                    localStorage.setItem(chiave, valore);
+                    return true;
+                } catch (e) {
+                    console.error("Errore salvataggio locale (" + chiave + "):", e);
+                    if (critico && !avvisoArchiviazioneMostratoRef.current) {
+                        avvisoArchiviazioneMostratoRef.current = true;
+                        alert("⚠️ ATTENZIONE: impossibile salvare i dati su questo dispositivo.\n\n" +
+                              "Lo spazio di archiviazione del browser potrebbe essere esaurito, oppure la scrittura è bloccata (per esempio in navigazione anonima).\n\n" +
+                              "Le modifiche NON vengono conservate: salva subito su Cloud o scarica un backup per non perderle.");
+                    }
+                    return false;
+                }
+            };
+
 
             // --- FORMATO DATI SALVATI ---
             const creaPayload = (voci, ultimo) => ({
@@ -270,11 +283,11 @@
             }, [snapshotDati, lastSavedData]);
 
             useEffect(() => {
-                try { localStorage.setItem('gestione-sal-sals', JSON.stringify(sals)); } catch (e) { console.error(e); }
+                salvaInLocale('gestione-sal-sals', JSON.stringify(sals), true);
             }, [sals]);
 
             useEffect(() => {
-                try { localStorage.setItem('gestione-sal-items', JSON.stringify(items)); } catch (e) { console.error(e); }
+                salvaInLocale('gestione-sal-items', JSON.stringify(items), true);
             }, [items]);
 
             useEffect(() => {
