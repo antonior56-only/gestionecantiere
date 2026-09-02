@@ -190,6 +190,17 @@
                 } catch(e) {}
                 return { binId: '', apiKey: '' };
             });
+            const [cloudDeviceId] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('sal-cloud-device-id');
+                    if (saved) return saved;
+                    const generated = `dev-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                    localStorage.setItem('sal-cloud-device-id', generated);
+                    return generated;
+                } catch (e) {
+                    return `dev-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                }
+            });
             const [showCloudSettings, setShowCloudSettings] = useState(false);
             const [isSyncing, setIsSyncing] = useState(false);
 
@@ -257,19 +268,23 @@
                 }
             };
 
-            const creaPayload = (voci, ultimo, overrides) => ({
+            const creaPayload = (voci, ultimo, overrides, elencoSal) => ({
                 formato: 2,
                 items: voci !== undefined ? voci : items,
+                sals: elencoSal !== undefined ? elencoSal : sals,
                 ultimoSalId: (ultimo !== undefined ? ultimo : ultimoSalId) ?? null,
                 overridesImponibile: overrides !== undefined ? overrides : overridesImponibile,
-                exportedAt: new Date().toISOString()
+                exportedAt: new Date().toISOString(),
+                syncId: `${cloudDeviceId}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                deviceId: cloudDeviceId,
+                schemaVersion: 3
             });
             const leggiPayload = (raw) => Array.isArray(raw)
-                ? { items: raw, ultimoSalId: undefined, overridesImponibile: undefined }
-                : { items: Array.isArray(raw?.items) ? raw.items : null, ultimoSalId: raw?.ultimoSalId ?? null, overridesImponibile: raw?.overridesImponibile ?? undefined };
+                ? { items: raw, sals: undefined, ultimoSalId: undefined, overridesImponibile: undefined }
+                : { items: Array.isArray(raw?.items) ? raw.items : null, sals: Array.isArray(raw?.sals) ? raw.sals : undefined, ultimoSalId: raw?.ultimoSalId ?? null, overridesImponibile: raw?.overridesImponibile ?? undefined };
 
-            const [lastSavedData, setLastSavedData] = useState(() => JSON.stringify({ items, ultimoSalId, overridesImponibile }));
-            const snapshotDati = useMemo(() => JSON.stringify({ items, ultimoSalId, overridesImponibile }), [items, ultimoSalId, overridesImponibile]);
+            const [lastSavedData, setLastSavedData] = useState(() => JSON.stringify({ items, sals, ultimoSalId, overridesImponibile }));
+            const snapshotDati = useMemo(() => JSON.stringify({ items, sals, ultimoSalId, overridesImponibile }), [items, sals, ultimoSalId, overridesImponibile]);
             const hasUnsavedChanges = snapshotDati !== lastSavedData;
 
             const [ultimoSalvataggio, setUltimoSalvataggio] = useState(() => {
@@ -362,14 +377,15 @@
                     if (!isSilent) alert("Inserisci Bin ID e Chiave di Accesso prima di sincronizzare!"); 
                     return;
                 }
+                if (!isSilent && hasUnsavedChanges && !window.confirm("⚠️ Hai modifiche locali non ancora salvate su Cloud. Scaricando i dati ora verranno sostituite. Vuoi procedere comunque?")) return;
                 setIsSyncing(true);
                 try {
-                    const response = await fetch(`https://api.jsonbin.io/v3/b/${cloudConfig.binId}/latest`, {
-                        headers: { 'X-Master-Key': cloudConfig.apiKey }
+                    const response = await fetch(cloudLatestUrl(), {
+                        headers: cloudHeaders(), cache: 'no-store'
                     });
                     if (!response.ok) throw new Error(cloudErrore(response.status, 'il caricamento'));
                     const result = await response.json();
-                    const { items: restoredData, ultimoSalId: ultimoDalCloud, overridesImponibile: overridesDalCloud } = leggiPayload(result.record);
+                    const { items: restoredData, sals: salsDalCloud, ultimoSalId: ultimoDalCloud, overridesImponibile: overridesDalCloud } = leggiPayload(result.record);
                     if (Array.isArray(restoredData)) {
                         let maxSalFound = 1;
                         const upgradedData = restoredData.map(item => {
@@ -383,23 +399,28 @@
 
                         const nuovoUltimo = ultimoDalCloud !== undefined ? ultimoDalCloud : ultimoSalId;
                         const nuoviOverrides = overridesDalCloud !== undefined ? overridesDalCloud : overridesImponibile;
+                        const nuoviSals = Array.isArray(salsDalCloud) && salsDalCloud.length > 0
+                            ? [...new Set(salsDalCloud.map(Number).filter(n => Number.isInteger(n) && n > 0))].sort((a, b) => a - b)
+                            : Array.from({length: maxSalFound}, (_, i) => i + 1);
 
                         if (isSilent) {
-                            const cloudString = JSON.stringify({ items: upgradedData, ultimoSalId: nuovoUltimo, overridesImponibile: nuoviOverrides });
-                            const localString = JSON.stringify({ items, ultimoSalId, overridesImponibile });
+                            const cloudString = JSON.stringify({ items: upgradedData, sals: nuoviSals, ultimoSalId: nuovoUltimo, overridesImponibile: nuoviOverrides });
+                            const localString = JSON.stringify({ items, sals, ultimoSalId, overridesImponibile });
                             if (cloudString !== localString) {
                                 const usaCloud = window.confirm("☁️ ATTENZIONE: Dati diversi sul Cloud.\n• OK = Scarica Cloud\n• Annulla = Mantieni dati attuali");
                                 if (!usaCloud) return; 
                             }
                         }
 
-                        setSals(Array.from({length: maxSalFound}, (_, i) => i + 1));
+                        setSals(nuoviSals);
                         setItems(upgradedData);
                         setUltimoSalId(nuovoUltimo);
                         setOverridesImponibile(nuoviOverrides);
                         setActiveSalView("ALL");
                         setEditingId(null);
-                        setLastSavedData(JSON.stringify({ items: upgradedData, ultimoSalId: nuovoUltimo, overridesImponibile: nuoviOverrides }));
+                        setLastSavedData(JSON.stringify({ items: upgradedData, sals: nuoviSals, ultimoSalId: nuovoUltimo, overridesImponibile: nuoviOverrides }));
+                        const remoteTimestamp = result.record?.exportedAt ? new Date(result.record.exportedAt).getTime() : Date.now();
+                        setCloudBase(remoteTimestamp);
                         if (!isSilent) { alert("Dati scaricati dal Cloud!"); setShowCloudSettings(false); }
                     }
                 } catch (error) {
@@ -408,6 +429,25 @@
             };
 
             const cloudBaseExportedAtRef = useRef(null);
+            const cloudSaveInProgressRef = useRef(false);
+            const cloudBaseKey = (binId = cloudConfig.binId) => `sal-cloud-base-${String(binId || '')}`;
+            const setCloudBase = (timestamp) => {
+                const value = Number(timestamp) || 0;
+                cloudBaseExportedAtRef.current = value;
+                try {
+                    if (cloudConfig.binId) localStorage.setItem(cloudBaseKey(), String(value));
+                } catch (e) { console.error("Errore salvataggio versione Cloud", e); }
+            };
+            const cloudLatestUrl = () => `https://api.jsonbin.io/v3/b/${encodeURIComponent(cloudConfig.binId)}/latest?_=${Date.now()}`;
+            const cloudHeaders = () => ({ 'X-Master-Key': cloudConfig.apiKey, 'Cache-Control': 'no-cache' });
+
+            useEffect(() => {
+                try {
+                    cloudBaseExportedAtRef.current = Number(localStorage.getItem(cloudBaseKey())) || 0;
+                } catch (e) {
+                    cloudBaseExportedAtRef.current = 0;
+                }
+            }, [cloudConfig.binId]);
 
             // AGGIUNTA GESTIONE SALVATAGGIO SILENZIOSO (AUTOSAVE)
             const saveToCloud = async (dataToSave, isExit = false, isAutosave = false) => {
@@ -415,19 +455,21 @@
                     if (!isExit && !isAutosave) alert("Configura prima il Bin ID e l'API Key.");
                     return false;
                 }
+                if (cloudSaveInProgressRef.current) return false;
+                cloudSaveInProgressRef.current = true;
                 
                 // Evitiamo di mostrare il caricamento visivo (isSyncing = true) se è solo un autosave, per non disturbare l'utente
                 if (!isAutosave) setIsSyncing(true);
                 
                 try {
                     try {
-                        const chk = await fetch(`https://api.jsonbin.io/v3/b/${cloudConfig.binId}/latest`, {
-                            method: 'GET', headers: { 'X-Master-Key': cloudConfig.apiKey }
+                        const chk = await fetch(cloudLatestUrl(), {
+                            method: 'GET', headers: cloudHeaders(), cache: 'no-store'
                         });
                         if (chk.ok) {
                             const chkData = await chk.json();
                             const remoteAt = (chkData.record && chkData.record.exportedAt) ? new Date(chkData.record.exportedAt).getTime() : 0;
-                            if (remoteAt && cloudBaseExportedAtRef.current && remoteAt > cloudBaseExportedAtRef.current + 1000) {
+                            if (remoteAt && (!cloudBaseExportedAtRef.current || remoteAt > cloudBaseExportedAtRef.current + 1000)) {
                                 if (!isAutosave && !window.confirm("⚠️ Sul cloud ci sono dati più recenti. Procedere sovrascrivendo?")) {
                                     setIsSyncing(false);
                                     return false;
@@ -438,15 +480,23 @@
                         }
                     } catch (chkErr) {}
 
-                    const res = await fetch(`https://api.jsonbin.io/v3/b/${cloudConfig.binId}`, {
+                    const res = await fetch(`https://api.jsonbin.io/v3/b/${encodeURIComponent(cloudConfig.binId)}`, {
                         method: 'PUT',
                         headers: { 'X-Master-Key': cloudConfig.apiKey, 'Content-Type': 'application/json' },
                         body: JSON.stringify(dataToSave)
                     });
                     if (!res.ok) throw new Error(cloudErrore(res.status, 'il salvataggio'));
 
-                    cloudBaseExportedAtRef.current = (dataToSave && dataToSave.exportedAt) ? new Date(dataToSave.exportedAt).getTime() : Date.now();
-                    setLastSavedData(JSON.stringify({ items: dataToSave.items, ultimoSalId: dataToSave.ultimoSalId, overridesImponibile: dataToSave.overridesImponibile }));
+                    const verify = await fetch(cloudLatestUrl(), { method: 'GET', headers: cloudHeaders(), cache: 'no-store' });
+                    if (!verify.ok) throw new Error('Dati inviati, ma verifica finale non riuscita: ' + cloudErrore(verify.status, 'la verifica'));
+                    const verifiedData = await verify.json();
+                    const record = verifiedData?.record;
+                    if (!record || record.syncId !== dataToSave.syncId || !Array.isArray(record.items) || record.items.length !== dataToSave.items.length) {
+                        throw new Error('JSONBin non ha restituito la versione appena inviata. Il salvataggio non viene considerato confermato.');
+                    }
+
+                    setCloudBase(record.exportedAt ? new Date(record.exportedAt).getTime() : Date.now());
+                    setLastSavedData(JSON.stringify({ items: dataToSave.items, sals: dataToSave.sals, ultimoSalId: dataToSave.ultimoSalId, overridesImponibile: dataToSave.overridesImponibile }));
                     registraSalvataggio('cloud');
 
                     if (isExit) {
@@ -462,18 +512,19 @@
                     if (!isAutosave) alert("⚠️ Errore Cloud\n\n" + e.message);
                     return false;
                 } finally { 
+                    cloudSaveInProgressRef.current = false;
                     if (!isAutosave) setIsSyncing(false); 
                 }
             };
 
             // AGGIUNTA AUTOSAVE: Configurazione del timer
             const saveToCloudRef = useRef(saveToCloud);
-            const autoSaveDataRef = useRef({ snapshotDati, lastSavedData, cloudConfig, items, ultimoSalId, overridesImponibile });
+            const autoSaveDataRef = useRef({ snapshotDati, lastSavedData, cloudConfig, items, sals, ultimoSalId, overridesImponibile });
             
             useEffect(() => { saveToCloudRef.current = saveToCloud; }, [saveToCloud]);
             useEffect(() => {
-                autoSaveDataRef.current = { snapshotDati, lastSavedData, cloudConfig, items, ultimoSalId, overridesImponibile };
-            }, [snapshotDati, lastSavedData, cloudConfig, items, ultimoSalId, overridesImponibile]);
+                autoSaveDataRef.current = { snapshotDati, lastSavedData, cloudConfig, items, sals, ultimoSalId, overridesImponibile };
+            }, [snapshotDati, lastSavedData, cloudConfig, items, sals, ultimoSalId, overridesImponibile]);
 
             useEffect(() => {
                 // Timer impostato su 3 minuti (180.000 millisecondi)
@@ -481,13 +532,7 @@
                     const current = autoSaveDataRef.current;
                     // Salva solo se ci sono modifiche e se il Cloud è configurato
                     if (current.snapshotDati !== current.lastSavedData && current.cloudConfig.apiKey && current.cloudConfig.binId) {
-                        const payload = {
-                            formato: 2,
-                            items: current.items,
-                            ultimoSalId: current.ultimoSalId,
-                            overridesImponibile: current.overridesImponibile,
-                            exportedAt: new Date().toISOString()
-                        };
+                        const payload = creaPayload(current.items, current.ultimoSalId, current.overridesImponibile, current.sals);
                         saveToCloudRef.current(payload, false, true); // (dati, non uscire, modalità silenziosa)
                     }
                 }, 180000); 
@@ -547,8 +592,9 @@
 
                 const sconto = lordoVoci * 0.07;
                 const netto = lordoVoci - sconto;
-                const anticipo = (salNum === 1 ? RECUPERO_RATA_ANTICIPO : 0) + (salNum === ultimoSal ? RECUPERO_RATA_ANTICIPO : 0);
-                const imponibile = netto - anticipo;
+                const anticipoPrevisto = (salNum === 1 ? RECUPERO_RATA_ANTICIPO : 0) + (salNum === ultimoSal ? RECUPERO_RATA_ANTICIPO : 0);
+                const anticipo = Math.min(anticipoPrevisto, Math.max(netto, 0));
+                const imponibile = Math.max(netto - anticipo, 0);
                 return { lordo: lordoVoci, sconto, netto, anticipo, imponibile, isOverridden: false, lordoVoci };
             };
 
@@ -741,16 +787,10 @@
                 const fractionSilvia = rawBaseTot > 0 ? (rawBaseSilvia / rawBaseTot) : 0;
                 const fractionNd = rawBaseTot > 0 ? (rawBaseNd / rawBaseTot) : 0;
 
-                const RECUPERO_RATA_IVATA = 2500 * 1.10;
-                let anticipoIvato = 0;
-
-                if (activeSalView === "ALL") {
-                    if (sals.includes(1)) anticipoIvato += RECUPERO_RATA_IVATA;
-                    if (ultimoSalId && sals.includes(ultimoSalId)) anticipoIvato += RECUPERO_RATA_IVATA;
-                } else {
-                    if (activeSalView === 1) anticipoIvato += RECUPERO_RATA_IVATA;
-                    if (ultimoSalId && activeSalView === ultimoSalId) anticipoIvato += RECUPERO_RATA_IVATA;
-                }
+                const salDaConteggiare = activeSalView === "ALL" ? sals : [activeSalView];
+                const anticipoIvato = salDaConteggiare.reduce((sum, salNum) => {
+                    return sum + (calcolaImponibileSal(salNum, items, ultimoSalId, overridesImponibile).anticipo * 1.10);
+                }, 0);
 
                 const baseIvato = totals.totaleIvatoBase || 0;
 
@@ -759,7 +799,7 @@
                 const nonAssegnato = (baseIvato * fractionNd) + rawExtraNd;
 
                 return { io, silvia, nonAssegnato };
-            }, [items, activeSalView, mainTab, totals.totaleIvatoBase, sals, ultimoSalId]);
+            }, [items, activeSalView, mainTab, totals.totaleIvatoBase, sals, ultimoSalId, overridesImponibile]);
 
             const filteredItems = useMemo(() => {
                 let result = [...items];
@@ -1216,7 +1256,7 @@
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     try {
-                    const { items: restoredData, ultimoSalId: ultimoDalFile, overridesImponibile: overridesDalFile } = leggiPayload(JSON.parse(e.target.result));
+                    const { items: restoredData, sals: salsDalFile, ultimoSalId: ultimoDalFile, overridesImponibile: overridesDalFile } = leggiPayload(JSON.parse(e.target.result));
                     if (Array.isArray(restoredData)) {
                         let maxSalFound = 1;
                         const upgradedData = restoredData.map(item => {
@@ -1230,9 +1270,12 @@
                         });
                         const nuovoUltimo = ultimoDalFile !== undefined ? ultimoDalFile : ultimoSalId;
                         const nuoviOverrides = overridesDalFile !== undefined ? overridesDalFile : overridesImponibile;
-                        setSals(Array.from({length: maxSalFound}, (_, i) => i + 1));
+                        const nuoviSals = Array.isArray(salsDalFile) && salsDalFile.length > 0
+                            ? [...new Set(salsDalFile.map(Number).filter(n => Number.isInteger(n) && n > 0))].sort((a, b) => a - b)
+                            : Array.from({length: maxSalFound}, (_, i) => i + 1);
+                        setSals(nuoviSals);
                         setItems(upgradedData); setUltimoSalId(nuovoUltimo); setOverridesImponibile(nuoviOverrides); setActiveSalView("ALL"); setEditingId(null);
-                        setLastSavedData(JSON.stringify({ items: upgradedData, ultimoSalId: nuovoUltimo, overridesImponibile: nuoviOverrides }));
+                        setLastSavedData(JSON.stringify({ items: upgradedData, sals: nuoviSals, ultimoSalId: nuovoUltimo, overridesImponibile: nuoviOverrides }));
                         alert("Dati ripristinati con successo!");
                     }
                     } catch (error) { alert("Errore durante la lettura del file."); }
@@ -1999,4 +2042,3 @@
     </script>
 </body>
 </html>
-
