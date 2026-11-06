@@ -260,7 +260,6 @@
                 if (planned === null) add(errors, 'Importo previsto mancante o non numerico.', 'importoPrevisto', item.importoPrevisto, index, item);
                 else {
                     if (planned < 0) add(errors, 'Importo previsto negativo.', 'importoPrevisto', item.importoPrevisto, index, item);
-                    if (planned === 0) add(warnings, 'Importo previsto pari a zero.', 'importoPrevisto', item.importoPrevisto, index, item);
                     if (typeof item.importoPrevisto === 'string') {
                         add(warnings, 'Importo numerico memorizzato come stringa.', 'importoPrevisto', item.importoPrevisto, index, item);
                         safeFixes.push(`Posizione ${index + 1}, ID ${item.id}: convertire importoPrevisto in numero.`);
@@ -1300,13 +1299,31 @@
             };
 
             const handleItemChange = (id, field, value) => {
-                const candidateItems = items.map(item => item.id === id ? { ...item, [field]: value } : item);
+                let nextValue = value;
+                if (field === 'importoPrevisto') {
+                    if (String(value).trim() === '') {
+                        const existing = items.find(item => item.id === id);
+                        if (!existing?.isDraft) return;
+                    } else {
+                        nextValue = finiteNumber(value);
+                        if (nextValue === null || nextValue < 0) {
+                            alert(`Importo previsto non valido: ${describeValue(value)}`);
+                            return;
+                        }
+                    }
+                }
+                const candidateItems = items.map(item => item.id === id ? { ...item, [field]: nextValue } : item);
                 const target = candidateItems.find(item => item.id === id);
                 if (target?.isDraft || validateCandidateItems(candidateItems, `modifica del campo ${field}`, false, id)) setItems(candidateItems);
             };
 
             const handleSalChange = (id, salId, value) => {
-                const candidateItems = items.map(item => item.id === id ? { ...item, eseguiti: { ...item.eseguiti, [salId]: value } } : item);
+                const parsedValue = String(value).trim() === '' ? 0 : finiteNumber(value);
+                if (parsedValue === null || parsedValue < 0) {
+                    alert(`Importo SAL non valido: ${describeValue(value)}`);
+                    return;
+                }
+                const candidateItems = items.map(item => item.id === id ? { ...item, eseguiti: { ...item.eseguiti, [salId]: parsedValue } } : item);
                 const target = candidateItems.find(item => item.id === id);
                 if (target?.isDraft || validateCandidateItems(candidateItems, `modifica del SAL ${salId}`, false, id)) setItems(candidateItems);
             };
@@ -1321,8 +1338,8 @@
                 const candidateItems = items.map(item => {
                     if (item.id === id) {
                         let parsedValue = validatedNumber;
-                        if (isPreItem(item.codice)) return { ...item, eseguiti: { 'PRE': parsedValue.toString() } };
-                        if (isExtraItem(item.codice)) return { ...item, eseguiti: { 'EXTRA': parsedValue.toString() } };
+                        if (isPreItem(item.codice)) return { ...item, eseguiti: { 'PRE': parsedValue } };
+                        if (isExtraItem(item.codice)) return { ...item, eseguiti: { 'EXTRA': parsedValue } };
                         
                         const previousSalsTotal = Object.entries(item.eseguiti || {}).reduce((sum, [key, val]) => {
                             return Number(key) === latestSal ? sum : sum + (parseFloat(val) || 0);
@@ -1332,7 +1349,7 @@
                             alert(`Attenzione: importo inferiore ai SAL precedenti (${formatCurrency(previousSalsTotal)}). Annullato.`);
                             return item;
                         }
-                        return { ...item, eseguiti: { ...item.eseguiti, [latestSal]: (parsedValue - previousSalsTotal).toString() } };
+                        return { ...item, eseguiti: { ...item.eseguiti, [latestSal]: (parsedValue - previousSalsTotal) } };
                     }
                     return item;
                 });
