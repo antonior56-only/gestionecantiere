@@ -328,6 +328,36 @@
             return `${title}\n\n${rows.join('\n\n')}`;
         };
 
+        const normalizeSafePayload = (input) => {
+            const payload = JSON.parse(JSON.stringify(input));
+            if (!isPlainObject(payload) || !Array.isArray(payload.items)) return payload;
+            payload.items = payload.items.map(item => {
+                if (!isPlainObject(item)) return item;
+                const normalized = { ...item };
+                const planned = finiteNumber(normalized.importoPrevisto);
+                if (typeof normalized.importoPrevisto === 'string' && planned !== null) normalized.importoPrevisto = planned;
+                if (isPlainObject(normalized.eseguiti)) {
+                    const kind = String(normalized.codice || '').trim().toUpperCase().startsWith('EXTRA') ? 'EXTRA' : (String(normalized.codice || '').trim().toUpperCase().startsWith('PRE-') ? 'PRE' : 'BASE');
+                    const executed = {};
+                    Object.entries(normalized.eseguiti).forEach(([key, value]) => {
+                        const amount = finiteNumber(value);
+                        if (typeof value === 'string' && amount !== null) value = amount;
+                        if (kind !== 'BASE' && /^\d+$/.test(key) && finiteNumber(value) === 0) return;
+                        executed[key] = value;
+                    });
+                    normalized.eseguiti = executed;
+                }
+                return normalized;
+            });
+            if (isPlainObject(payload.overridesImponibile)) {
+                payload.overridesImponibile = Object.fromEntries(Object.entries(payload.overridesImponibile).map(([key, value]) => {
+                    const amount = finiteNumber(value);
+                    return [key, typeof value === 'string' && amount !== null ? amount : value];
+                }));
+            }
+            return payload;
+        };
+
         const approveValidation = (result, action, silent = false) => {
             if (!result.valid) {
                 const message = formatValidationIssues(`Impossibile completare ${action}: trovati ${result.errors.length} errori.`, result.errors);
@@ -337,7 +367,7 @@
             if (result.warnings.length > 0) {
                 const message = formatValidationIssues(`${action}: trovati ${result.warnings.length} avvisi.`, result.warnings);
                 if (silent) { console.warn(message); return false; }
-                return window.confirm(message + '\n\nContinuare senza modificare automaticamente questi valori?');
+                return window.confirm(message + '\n\nPremendo OK verranno convertiti gli importi numerici salvati come testo e rimossi solo i campi SAL pari a zero superflui per le voci EXTRA/PRE. Gli altri dati non verranno modificati.');
             }
             return true;
         };
@@ -622,7 +652,8 @@
                     });
                     if (!response.ok) throw new Error(cloudErrore(response.status, 'il caricamento'));
                     const result = await response.json();
-                    const cloudValidation = validatePayload(result.record, { source: 'Cloud' });
+                    let cloudRecord = result.record;
+                    const cloudValidation = validatePayload(cloudRecord, { source: 'Cloud' });
                     if (!cloudValidation.valid) {
                         const report = formatValidationIssues(`Dati Cloud rifiutati: ${cloudValidation.errors.length} errori.`, cloudValidation.errors);
                         console.error(report);
@@ -637,10 +668,17 @@
                             return false;
                         }
                         if (!approveValidation(cloudValidation, 'il caricamento dal Cloud', false)) return false;
+                        cloudRecord = normalizeSafePayload(cloudRecord);
+                        const normalizedCloudValidation = validatePayload(cloudRecord, { source: 'Cloud, dopo normalizzazione' });
+                        if (!normalizedCloudValidation.valid) {
+                            alert(formatValidationIssues(`Caricamento Cloud annullato dopo la normalizzazione: ${normalizedCloudValidation.errors.length} errori.`, normalizedCloudValidation.errors));
+                            return false;
+                        }
+                        if (normalizedCloudValidation.warnings.length > 0 && !approveValidation(normalizedCloudValidation, 'il caricamento Cloud, avvisi residui', false)) return false;
                     }
                     const remoteTimestamp = result.record?.exportedAt ? new Date(result.record.exportedAt).getTime() : 0;
                     if (isBackground && remoteTimestamp && cloudBaseExportedAtRef.current && remoteTimestamp <= cloudBaseExportedAtRef.current + 1000) return true;
-                    const { items: restoredData, sals: salsDalCloud, ultimoSalId: ultimoDalCloud, overridesImponibile: overridesDalCloud } = leggiPayload(result.record);
+                    const { items: restoredData, sals: salsDalCloud, ultimoSalId: ultimoDalCloud, overridesImponibile: overridesDalCloud } = leggiPayload(cloudRecord);
                     if (Array.isArray(restoredData)) {
                         let maxSalFound = 1;
                         const upgradedData = restoredData.map(item => {
@@ -740,8 +778,22 @@
                     else alert(report);
                     return false;
                 }
-                if (!isAutosave && outgoingValidation.warnings.length > 0 && !approveValidation(outgoingValidation, 'il salvataggio Cloud', false)) return false;
-                if (isAutosave && outgoingValidation.warnings.length > 0) console.warn(formatValidationIssues('Autosave Cloud con avvisi.', outgoingValidation.warnings));
+                if (!isAutosave && outgoingValidation.warnings.length > 0) {
+                    if (!approveValidation(outgoingValidation, 'il salvataggio Cloud', false)) return false;
+                    dataToSave = normalizeSafePayload(dataToSave);
+                    const normalizedOutgoingValidation = validatePayload(dataToSave, { source: 'salvataggio Cloud, dopo normalizzazione' });
+                    if (!normalizedOutgoingValidation.valid) {
+                        alert(formatValidationIssues(`Salvataggio Cloud bloccato dopo la normalizzazione: ${normalizedOutgoingValidation.errors.length} errori.`, normalizedOutgoingValidation.errors));
+                        return false;
+                    }
+                    if (normalizedOutgoingValidation.warnings.length > 0 && !approveValidation(normalizedOutgoingValidation, 'salvataggio Cloud, avvisi residui', false)) return false;
+                }
+                if (isAutosave && outgoingValidation.warnings.length > 0) {
+                    const report = formatValidationIssues('Autosave Cloud sospeso: i dati richiedono conferma e normalizzazione.', outgoingValidation.warnings);
+                    console.warn(report);
+                    showMsg('⚠️ Autosave Cloud sospeso: crea un backup o salva manualmente per normalizzare i dati.');
+                    return false;
+                }
                 if (cloudSaveInProgressRef.current) return false;
                 cloudSaveInProgressRef.current = true;
                 
@@ -855,13 +907,22 @@
             }, []);
 
             const prepareValidatedJson = (action, requireWarningApproval = true) => {
-                const payload = creaPayload();
+                let payload = creaPayload();
                 const firstValidation = validatePayload(payload, { source: action });
                 if (!firstValidation.valid) {
                     alert(formatValidationIssues(`${action} bloccato: ${firstValidation.errors.length} errori.`, firstValidation.errors));
                     return null;
                 }
-                if (requireWarningApproval && firstValidation.warnings.length > 0 && !approveValidation(firstValidation, action, false)) return null;
+                if (requireWarningApproval && firstValidation.warnings.length > 0) {
+                    if (!approveValidation(firstValidation, action, false)) return null;
+                    payload = normalizeSafePayload(payload);
+                    const normalizedValidation = validatePayload(payload, { source: `${action}, dopo normalizzazione` });
+                    if (!normalizedValidation.valid) {
+                        alert(formatValidationIssues(`${action} bloccato dopo la normalizzazione: ${normalizedValidation.errors.length} errori.`, normalizedValidation.errors));
+                        return null;
+                    }
+                    if (normalizedValidation.warnings.length > 0 && !approveValidation(normalizedValidation, `${action}, avvisi residui`, false)) return null;
+                }
                 const json = JSON.stringify(payload, null, 2);
                 let reread;
                 try { reread = JSON.parse(json); }
@@ -1635,7 +1696,17 @@
                         alert(formatValidationIssues(`Ripristino annullato: trovati ${restoreValidation.errors.length} errori. Nessun dato è stato modificato.`, restoreValidation.errors));
                         return;
                     }
-                    if (restoreValidation.warnings.length > 0 && !approveValidation(restoreValidation, 'il ripristino', false)) return;
+                    let payloadToRestore = parsedFile;
+                    if (restoreValidation.warnings.length > 0) {
+                        if (!approveValidation(restoreValidation, 'il ripristino', false)) return;
+                        payloadToRestore = normalizeSafePayload(parsedFile);
+                        const normalizedRestoreValidation = validatePayload(payloadToRestore, { source: `${file.name || 'backup selezionato'}, dopo normalizzazione` });
+                        if (!normalizedRestoreValidation.valid) {
+                            alert(formatValidationIssues(`Ripristino annullato dopo la normalizzazione: ${normalizedRestoreValidation.errors.length} errori. Nessun dato è stato modificato.`, normalizedRestoreValidation.errors));
+                            return;
+                        }
+                        if (normalizedRestoreValidation.warnings.length > 0 && !approveValidation(normalizedRestoreValidation, 'il ripristino, avvisi residui', false)) return;
+                    }
 
                     const currentSnapshot = JSON.stringify(creaPayload(), null, 2);
                     try {
@@ -1646,7 +1717,7 @@
                         return;
                     }
 
-                    const { items: restoredData, sals: salsDalFile, ultimoSalId: ultimoDalFile, overridesImponibile: overridesDalFile } = leggiPayload(parsedFile);
+                    const { items: restoredData, sals: salsDalFile, ultimoSalId: ultimoDalFile, overridesImponibile: overridesDalFile } = leggiPayload(payloadToRestore);
                     if (Array.isArray(restoredData)) {
                         let maxSalFound = 1;
                         const upgradedData = restoredData.map(item => {
