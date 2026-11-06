@@ -139,6 +139,209 @@
             { id: 43, codice: "SIC24_26.1.26", descrizione: "Recinzione perimetrale di protezione in rete estrusa di polietilene ad alta densità HDPE.", importoPrevisto: 274.00, note: "", pagatoDa: "", isEditing: false },
         ];
 
+        const DATA_FORMAT_VERSION = 2;
+        const DATA_SCHEMA_VERSION = 3;
+        const ALLOWED_PAYERS = new Set(['', 'Io', 'Silvia']);
+
+        const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+        const finiteNumber = (value) => {
+            if (value === null || value === '' || typeof value === 'boolean') return null;
+            const number = typeof value === 'number' ? value : Number(String(value).trim());
+            return Number.isFinite(number) ? number : null;
+        };
+        const canonicalize = (value) => {
+            if (Array.isArray(value)) return value.map(canonicalize);
+            if (isPlainObject(value)) return Object.keys(value).sort().reduce((out, key) => {
+                out[key] = canonicalize(value[key]);
+                return out;
+            }, {});
+            return value;
+        };
+        const canonicalStringify = (value) => JSON.stringify(canonicalize(value));
+        const describeValue = (value) => {
+            try {
+                const rendered = JSON.stringify(value);
+                return rendered === undefined ? String(value) : rendered;
+            } catch (e) { return String(value); }
+        };
+
+        const validatePayload = (input, options = {}) => {
+            const source = options.source || 'dati';
+            const errors = [];
+            const warnings = [];
+            const safeFixes = [];
+            const add = (bucket, message, field, value, index = null, item = null) => bucket.push({
+                source,
+                position: index === null ? 'radice' : index + 1,
+                id: item && Object.prototype.hasOwnProperty.call(item, 'id') ? item.id : null,
+                description: item && typeof item.descrizione === 'string' ? item.descrizione.trim().slice(0, 100) : '',
+                field,
+                value,
+                message
+            });
+
+            let payload = input;
+            if (Array.isArray(payload)) {
+                add(warnings, 'Backup legacy in formato array: richiede migrazione esplicita.', '$', '<array legacy>');
+                safeFixes.push('Racchiudere l’array nel payload corrente senza modificare i record.');
+                payload = { items: payload };
+            }
+            if (!isPlainObject(payload)) {
+                add(errors, 'Il payload deve essere un oggetto JSON.', '$', payload);
+                return { valid: false, errors, warnings, safeFixes, payload: null };
+            }
+
+            if (payload.formato !== undefined && payload.formato !== DATA_FORMAT_VERSION) add(errors, `Formato non supportato: atteso ${DATA_FORMAT_VERSION}.`, 'formato', payload.formato);
+            if (payload.formato === undefined) add(warnings, 'Versione formato assente.', 'formato', undefined);
+            if (payload.schemaVersion !== undefined) {
+                if (!Number.isInteger(payload.schemaVersion) || payload.schemaVersion < 1) add(errors, 'Versione schema non valida.', 'schemaVersion', payload.schemaVersion);
+                else if (payload.schemaVersion > DATA_SCHEMA_VERSION) add(errors, `Schema futuro non supportato: massimo ${DATA_SCHEMA_VERSION}.`, 'schemaVersion', payload.schemaVersion);
+                else if (payload.schemaVersion < DATA_SCHEMA_VERSION) add(warnings, `Schema precedente (${payload.schemaVersion}): è necessaria una migrazione dichiarata.`, 'schemaVersion', payload.schemaVersion);
+            } else add(warnings, 'Versione schema assente.', 'schemaVersion', undefined);
+
+            if (payload.exportedAt !== undefined) {
+                const timestamp = Date.parse(payload.exportedAt);
+                if (typeof payload.exportedAt !== 'string' || !Number.isFinite(timestamp)) add(errors, 'Data e ora di esportazione non valide.', 'exportedAt', payload.exportedAt);
+            } else add(warnings, 'Data e ora di esportazione assenti.', 'exportedAt', undefined);
+
+            if (!Array.isArray(payload.items)) {
+                add(errors, 'La proprietà items deve essere un array.', 'items', payload.items);
+                return { valid: false, errors, warnings, safeFixes, payload };
+            }
+
+            let sals = payload.sals;
+            if (sals === undefined) {
+                const found = new Set([1]);
+                payload.items.forEach(item => {
+                    if (isPlainObject(item) && isPlainObject(item.eseguiti)) Object.keys(item.eseguiti).forEach(key => {
+                        if (/^\d+$/.test(key) && Number(key) > 0) found.add(Number(key));
+                    });
+                });
+                sals = [...found].sort((a, b) => a - b);
+                add(warnings, 'Elenco SAL assente; può essere ricostruito dalle voci.', 'sals', undefined);
+                safeFixes.push(`Ricostruire sals come ${JSON.stringify(sals)}.`);
+            } else if (!Array.isArray(sals) || sals.length === 0) {
+                add(errors, 'sals deve essere un array non vuoto.', 'sals', sals);
+                sals = [];
+            } else {
+                const seenSals = new Set();
+                sals.forEach((sal, index) => {
+                    if (!Number.isInteger(sal) || sal <= 0) add(errors, 'Ogni SAL deve essere un intero positivo.', `sals[${index}]`, sal);
+                    else if (seenSals.has(sal)) add(errors, 'SAL duplicato.', `sals[${index}]`, sal);
+                    seenSals.add(sal);
+                });
+            }
+            const allowedSalKeys = new Set((Array.isArray(sals) ? sals : []).map(String));
+
+            const seenIds = new Map();
+            const seenCodes = new Map();
+            payload.items.forEach((item, index) => {
+                if (!isPlainObject(item)) {
+                    add(errors, 'Record nullo o strutturalmente incompleto.', `items[${index}]`, item, index, null);
+                    return;
+                }
+                if (!Number.isInteger(item.id) || item.id <= 0) add(errors, 'ID obbligatorio: deve essere un intero positivo.', 'id', item.id, index, item);
+                else if (seenIds.has(item.id)) {
+                    add(errors, `ID duplicato; già presente alla posizione ${seenIds.get(item.id) + 1}.`, 'id', item.id, index, item);
+                } else seenIds.set(item.id, index);
+
+                if (typeof item.codice !== 'string' || !item.codice.trim()) add(errors, 'Codice obbligatorio mancante o non valido.', 'codice', item.codice, index, item);
+                else {
+                    const code = item.codice.trim();
+                    if (seenCodes.has(code)) add(warnings, `Codice duplicato; già presente alla posizione ${seenCodes.get(code) + 1}.`, 'codice', code, index, item);
+                    else seenCodes.set(code, index);
+                }
+                if (typeof item.descrizione !== 'string' || !item.descrizione.trim()) add(errors, 'Descrizione obbligatoria mancante o non valida.', 'descrizione', item.descrizione, index, item);
+                if (item.note !== undefined && typeof item.note !== 'string') add(errors, 'Le note devono essere una stringa.', 'note', item.note, index, item);
+                const payer = item.pagatoDa === undefined ? '' : item.pagatoDa;
+                if (typeof payer !== 'string' || !ALLOWED_PAYERS.has(payer)) add(errors, 'Valore pagatoDa non ammesso.', 'pagatoDa', payer, index, item);
+
+                const planned = finiteNumber(item.importoPrevisto);
+                if (planned === null) add(errors, 'Importo previsto mancante o non numerico.', 'importoPrevisto', item.importoPrevisto, index, item);
+                else {
+                    if (planned < 0) add(errors, 'Importo previsto negativo.', 'importoPrevisto', item.importoPrevisto, index, item);
+                    if (planned === 0) add(warnings, 'Importo previsto pari a zero.', 'importoPrevisto', item.importoPrevisto, index, item);
+                    if (typeof item.importoPrevisto === 'string') {
+                        add(warnings, 'Importo numerico memorizzato come stringa.', 'importoPrevisto', item.importoPrevisto, index, item);
+                        safeFixes.push(`Posizione ${index + 1}, ID ${item.id}: convertire importoPrevisto in numero.`);
+                    }
+                }
+
+                let executedMap = item.eseguiti;
+                if (!isPlainObject(executedMap)) {
+                    if (item.eseguiti === undefined && item.importoEseguito !== undefined && finiteNumber(item.importoEseguito) !== null) {
+                        executedMap = { 1: item.importoEseguito };
+                        add(warnings, 'Campo legacy importoEseguito: richiede migrazione esplicita a eseguiti.1.', 'importoEseguito', item.importoEseguito, index, item);
+                        safeFixes.push(`Posizione ${index + 1}, ID ${item.id}: migrare importoEseguito in eseguiti.1.`);
+                    } else {
+                        add(errors, 'eseguiti deve essere un oggetto.', 'eseguiti', item.eseguiti, index, item);
+                        return;
+                    }
+                }
+                const codeUpper = typeof item.codice === 'string' ? item.codice.trim().toUpperCase() : '';
+                const kind = codeUpper.startsWith('EXTRA') ? 'EXTRA' : (codeUpper.startsWith('PRE-') ? 'PRE' : 'BASE');
+                let executedTotal = 0;
+                Object.entries(executedMap).forEach(([key, raw]) => {
+                    const amount = finiteNumber(raw);
+                    if (amount === null) add(errors, 'Importo eseguito non numerico.', `eseguiti.${key}`, raw, index, item);
+                    else {
+                        executedTotal += amount;
+                        if (amount < 0) add(errors, 'Importo eseguito negativo.', `eseguiti.${key}`, raw, index, item);
+                        if (typeof raw === 'string') {
+                            add(warnings, 'Importo numerico memorizzato come stringa.', `eseguiti.${key}`, raw, index, item);
+                            safeFixes.push(`Posizione ${index + 1}, ID ${item.id}: convertire eseguiti.${key} in numero.`);
+                        }
+                    }
+                    const keyAllowed = kind === 'EXTRA' ? key === 'EXTRA' : (kind === 'PRE' ? key === 'PRE' : allowedSalKeys.has(key));
+                    if (!keyAllowed) {
+                        if (amount === 0 && /^\d+$/.test(key) && kind !== 'BASE') {
+                            add(warnings, `Chiave SAL superflua per una voce ${kind}.`, `eseguiti.${key}`, raw, index, item);
+                            safeFixes.push(`Posizione ${index + 1}, ID ${item.id}: rimuovere eseguiti.${key}, che vale zero.`);
+                        } else add(errors, `Chiave eseguiti non coerente con una voce ${kind}.`, `eseguiti.${key}`, raw, index, item);
+                    }
+                });
+                const requiredKey = kind === 'EXTRA' ? 'EXTRA' : (kind === 'PRE' ? 'PRE' : null);
+                if (requiredKey && !Object.prototype.hasOwnProperty.call(executedMap, requiredKey)) add(errors, `Chiave ${requiredKey} mancante.`, `eseguiti.${requiredKey}`, undefined, index, item);
+                if (planned !== null && planned >= 0 && executedTotal > planned + 0.005) add(warnings, `Eseguito (${executedTotal}) superiore al previsto (${planned}).`, 'eseguiti', executedMap, index, item);
+            });
+
+            if (payload.ultimoSalId !== undefined && payload.ultimoSalId !== null && (!Number.isInteger(payload.ultimoSalId) || !allowedSalKeys.has(String(payload.ultimoSalId)))) add(errors, 'ultimoSalId non riferisce un SAL esistente.', 'ultimoSalId', payload.ultimoSalId);
+            if (payload.overridesImponibile !== undefined) {
+                if (!isPlainObject(payload.overridesImponibile)) add(errors, 'overridesImponibile deve essere un oggetto.', 'overridesImponibile', payload.overridesImponibile);
+                else Object.entries(payload.overridesImponibile).forEach(([key, raw]) => {
+                    if (!allowedSalKeys.has(key)) add(errors, 'Override riferito a un SAL inesistente.', `overridesImponibile.${key}`, raw);
+                    const amount = finiteNumber(raw);
+                    if (amount === null || amount < 0) add(errors, 'Override imponibile non valido.', `overridesImponibile.${key}`, raw);
+                    else if (typeof raw === 'string') add(warnings, 'Override numerico memorizzato come stringa.', `overridesImponibile.${key}`, raw);
+                });
+            }
+            return { valid: errors.length === 0, errors, warnings, safeFixes, payload };
+        };
+
+        const formatValidationIssues = (title, issues) => {
+            const rows = issues.map((issue, index) => {
+                const identity = issue.position === 'radice'
+                    ? 'radice'
+                    : `posizione ${issue.position}, ID ${describeValue(issue.id)}, descrizione ${describeValue(issue.description)}`;
+                return `${index + 1}. ${identity}\n   Campo: ${issue.field}\n   Valore: ${describeValue(issue.value)}\n   Problema: ${issue.message}`;
+            });
+            return `${title}\n\n${rows.join('\n\n')}`;
+        };
+
+        const approveValidation = (result, action, silent = false) => {
+            if (!result.valid) {
+                const message = formatValidationIssues(`Impossibile completare ${action}: trovati ${result.errors.length} errori.`, result.errors);
+                if (!silent) alert(message); else console.error(message);
+                return false;
+            }
+            if (result.warnings.length > 0) {
+                const message = formatValidationIssues(`${action}: trovati ${result.warnings.length} avvisi.`, result.warnings);
+                if (silent) { console.warn(message); return false; }
+                return window.confirm(message + '\n\nContinuare senza modificare automaticamente questi valori?');
+            }
+            return true;
+        };
+
         function SalDashboard() {
             const [mainTab, setMainTab] = useState('CANTIERE'); // 'CANTIERE' | 'PRE_COSTRUZIONE' | 'PROSPETTI'
 
@@ -165,10 +368,17 @@
             });
             
             useEffect(() => {
-                salvaInLocale('gestione-sal-overrides-imponibile', JSON.stringify(overridesImponibile), true);
+                const result = validatePayload(creaPayload(), { source: 'localStorage' });
+                if (result.valid) salvaInLocale('gestione-sal-overrides-imponibile', JSON.stringify(overridesImponibile), true);
+                else console.error(formatValidationIssues('Dati non salvati in localStorage.', result.errors));
             }, [overridesImponibile]);
             
             const setImponibileFisso = (salNum, valore) => {
+                const parsed = finiteNumber(valore);
+                if (valore !== '' && (parsed === null || parsed < 0 || !sals.includes(Number(salNum)))) {
+                    alert(`Override imponibile non valido per il SAL ${salNum}: ${describeValue(valore)}`);
+                    return;
+                }
                 setOverridesImponibile(prev => {
                     const next = { ...prev };
                     if (valore === '' || valore === null || valore === undefined) delete next[salNum];
@@ -179,8 +389,11 @@
 
             useEffect(() => {
                 try {
-                    if (ultimoSalId) salvaInLocale('gestione-sal-ultimo', String(ultimoSalId), true);
-                    else localStorage.removeItem('gestione-sal-ultimo');
+                    const result = validatePayload(creaPayload(), { source: 'localStorage' });
+                    if (result.valid) {
+                        if (ultimoSalId) salvaInLocale('gestione-sal-ultimo', String(ultimoSalId), true);
+                        else localStorage.removeItem('gestione-sal-ultimo');
+                    } else console.error(formatValidationIssues('Dati non salvati in localStorage.', result.errors));
                 } catch (e) { console.error(e); }
             }, [ultimoSalId]);
             
@@ -295,6 +508,15 @@
             const [lastSavedData, setLastSavedData] = useState(() => JSON.stringify({ items, sals, ultimoSalId, overridesImponibile }));
             const snapshotDati = useMemo(() => JSON.stringify({ items, sals, ultimoSalId, overridesImponibile }), [items, sals, ultimoSalId, overridesImponibile]);
             const hasUnsavedChanges = snapshotDati !== lastSavedData;
+            const startupValidationShownRef = useRef(false);
+
+            useEffect(() => {
+                if (startupValidationShownRef.current) return;
+                startupValidationShownRef.current = true;
+                const result = validatePayload(creaPayload(), { source: 'dati locali all’avvio' });
+                if (!result.valid) alert(formatValidationIssues(`I dati locali contengono ${result.errors.length} errori. Il salvataggio automatico resta bloccato finché non vengono corretti.`, result.errors));
+                if (result.warnings.length > 0) console.warn(formatValidationIssues(`Dati locali: ${result.warnings.length} avvisi.`, result.warnings));
+            }, []);
 
             const [ultimoSalvataggio, setUltimoSalvataggio] = useState(() => {
                 try {
@@ -348,11 +570,15 @@
             }, [snapshotDati, lastSavedData]);
 
             useEffect(() => {
-                salvaInLocale('gestione-sal-sals', JSON.stringify(sals), true);
+                const result = validatePayload(creaPayload(), { source: 'localStorage' });
+                if (result.valid) salvaInLocale('gestione-sal-sals', JSON.stringify(sals), true);
+                else console.error(formatValidationIssues('Dati non salvati in localStorage.', result.errors));
             }, [sals]);
 
             useEffect(() => {
-                salvaInLocale('gestione-sal-items', JSON.stringify(items), true);
+                const result = validatePayload(creaPayload(), { source: 'localStorage' });
+                if (result.valid) salvaInLocale('gestione-sal-items', JSON.stringify(items), true);
+                else console.error(formatValidationIssues('Dati non salvati in localStorage.', result.errors));
             }, [items]);
 
             useEffect(() => {
@@ -396,6 +622,22 @@
                     });
                     if (!response.ok) throw new Error(cloudErrore(response.status, 'il caricamento'));
                     const result = await response.json();
+                    const cloudValidation = validatePayload(result.record, { source: 'Cloud' });
+                    if (!cloudValidation.valid) {
+                        const report = formatValidationIssues(`Dati Cloud rifiutati: ${cloudValidation.errors.length} errori.`, cloudValidation.errors);
+                        console.error(report);
+                        if (isBackground || isSilent) showMsg('⚠️ Dati Cloud non validi: nessun dato locale è stato sostituito.');
+                        else alert(report);
+                        return false;
+                    }
+                    if (cloudValidation.warnings.length > 0) {
+                        if (isBackground) {
+                            console.warn(formatValidationIssues('Aggiornamento Cloud sospeso per avvisi.', cloudValidation.warnings));
+                            showMsg('⚠️ Aggiornamento Cloud sospeso: i dati remoti richiedono verifica.');
+                            return false;
+                        }
+                        if (!approveValidation(cloudValidation, 'il caricamento dal Cloud', false)) return false;
+                    }
                     const remoteTimestamp = result.record?.exportedAt ? new Date(result.record.exportedAt).getTime() : 0;
                     if (isBackground && remoteTimestamp && cloudBaseExportedAtRef.current && remoteTimestamp <= cloudBaseExportedAtRef.current + 1000) return true;
                     const { items: restoredData, sals: salsDalCloud, ultimoSalId: ultimoDalCloud, overridesImponibile: overridesDalCloud } = leggiPayload(result.record);
@@ -426,7 +668,11 @@
                             const localString = JSON.stringify({ items, sals, ultimoSalId, overridesImponibile });
                             if (cloudString !== localString) {
                                 const usaCloud = window.confirm("☁️ ATTENZIONE: Dati diversi sul Cloud.\n• OK = Scarica Cloud\n• Annulla = Mantieni dati attuali");
-                                if (!usaCloud) return; 
+                                if (!usaCloud) {
+                                    setLastSavedData('__DATI_LOCALI_NON_SINCRONIZZATI__');
+                                    showMsg('⚠️ Dati locali mantenuti e protetti dalla sovrascrittura automatica.');
+                                    return false;
+                                }
                             }
                         }
 
@@ -487,6 +733,15 @@
                     if (!isExit && !isAutosave) alert("Configura prima il Bin ID e l'API Key.");
                     return false;
                 }
+                const outgoingValidation = validatePayload(dataToSave, { source: isAutosave ? 'autosave Cloud' : 'salvataggio Cloud' });
+                if (!outgoingValidation.valid) {
+                    const report = formatValidationIssues(`Salvataggio Cloud bloccato: ${outgoingValidation.errors.length} errori.`, outgoingValidation.errors);
+                    if (isAutosave) { console.error(report); showMsg('⚠️ Autosave bloccato: correggere i dati non validi.'); }
+                    else alert(report);
+                    return false;
+                }
+                if (!isAutosave && outgoingValidation.warnings.length > 0 && !approveValidation(outgoingValidation, 'il salvataggio Cloud', false)) return false;
+                if (isAutosave && outgoingValidation.warnings.length > 0) console.warn(formatValidationIssues('Autosave Cloud con avvisi.', outgoingValidation.warnings));
                 if (cloudSaveInProgressRef.current) return false;
                 cloudSaveInProgressRef.current = true;
                 
@@ -510,7 +765,9 @@
                                 if (isAutosave) return false;
                             }
                         }
-                    } catch (chkErr) {}
+                    } catch (chkErr) {
+                        throw new Error('Controllo preventivo Cloud non riuscito: ' + chkErr.message);
+                    }
 
                     const res = await fetch(`https://api.jsonbin.io/v3/b/${encodeURIComponent(cloudConfig.binId)}`, {
                         method: 'PUT',
@@ -523,7 +780,9 @@
                     if (!verify.ok) throw new Error('Dati inviati, ma verifica finale non riuscita: ' + cloudErrore(verify.status, 'la verifica'));
                     const verifiedData = await verify.json();
                     const record = verifiedData?.record;
-                    if (!record || record.syncId !== dataToSave.syncId || !Array.isArray(record.items) || record.items.length !== dataToSave.items.length) {
+                    const verifiedValidation = validatePayload(record, { source: 'verifica Cloud' });
+                    if (!verifiedValidation.valid) throw new Error(formatValidationIssues('La copia riletta dal Cloud non è valida.', verifiedValidation.errors));
+                    if (!record || record.syncId !== dataToSave.syncId || canonicalStringify(record) !== canonicalStringify(dataToSave)) {
                         throw new Error('JSONBin non ha restituito la versione appena inviata. Il salvataggio non viene considerato confermato.');
                     }
 
@@ -595,6 +854,30 @@
                 };
             }, []);
 
+            const prepareValidatedJson = (action, requireWarningApproval = true) => {
+                const payload = creaPayload();
+                const firstValidation = validatePayload(payload, { source: action });
+                if (!firstValidation.valid) {
+                    alert(formatValidationIssues(`${action} bloccato: ${firstValidation.errors.length} errori.`, firstValidation.errors));
+                    return null;
+                }
+                if (requireWarningApproval && firstValidation.warnings.length > 0 && !approveValidation(firstValidation, action, false)) return null;
+                const json = JSON.stringify(payload, null, 2);
+                let reread;
+                try { reread = JSON.parse(json); }
+                catch (error) { alert(`${action} bloccato: il JSON appena creato non può essere riletto. ${error.message}`); return null; }
+                const secondValidation = validatePayload(reread, { source: `${action}, rilettura` });
+                if (!secondValidation.valid) {
+                    alert(formatValidationIssues(`${action} bloccato dopo la rilettura: ${secondValidation.errors.length} errori.`, secondValidation.errors));
+                    return null;
+                }
+                if (canonicalStringify(payload) !== canonicalStringify(reread)) {
+                    alert(`${action} bloccato: il contenuto riletto non coincide con quello creato.`);
+                    return null;
+                }
+                return { payload, json };
+            };
+
             const saveNow = () => {
                 if (cloudConfig.binId && cloudConfig.apiKey) saveToCloud(creaPayload(), false);
                 else handleBackup(false);
@@ -606,7 +889,9 @@
                     if (cloudConfig.apiKey && cloudConfig.binId) { await saveToCloud(creaPayload(), true); return; }
                     const now = new Date();
                     const fileName = `gestionesal_${now.toISOString().split('T')[0]}.json`;
-                    const dataToSave = JSON.stringify(creaPayload(), null, 2);
+                    const prepared = prepareValidatedJson('Backup prima dell’uscita');
+                    if (!prepared) return;
+                    const dataToSave = prepared.json;
                     try {
                         if (window.showSaveFilePicker) {
                             const fileHandle = await window.showSaveFilePicker({ suggestedName: fileName, types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }]});
@@ -621,7 +906,7 @@
                         }
                         setLastSavedData(currentDataString);
                         registraSalvataggio('file');
-                        alert("✅ Backup completato. Puoi chiudere.");
+                        alert("✅ Backup validato e generato. Puoi chiudere.");
                         try { window.close(); } catch(e) {}
                     } catch (error) { if (error.name !== 'AbortError') alert("Errore durante il salvataggio locale."); }
                 } else {
@@ -942,19 +1227,39 @@
                 return result;
             }, [items, searchCodice, showOnlyExtra, statusFilter, hideZero, sortConfig, activeSalView, mainTab, editingId]);
 
+            const validateCandidateItems = (candidateItems, action, silent = false, targetId = null) => {
+                const result = validatePayload(creaPayload(candidateItems), { source: action });
+                const relevantErrors = targetId === null ? result.errors : result.errors.filter(issue => issue.position === 'radice' || issue.id === targetId);
+                if (relevantErrors.length > 0) {
+                    const report = formatValidationIssues(`${action} bloccata: ${relevantErrors.length} errori.`, relevantErrors);
+                    if (!silent) alert(report); else console.error(report);
+                    return false;
+                }
+                return true;
+            };
+
             const handleItemChange = (id, field, value) => {
-                setItems(items.map(item => item.id === id ? { ...item, [field]: value } : item));
+                const candidateItems = items.map(item => item.id === id ? { ...item, [field]: value } : item);
+                const target = candidateItems.find(item => item.id === id);
+                if (target?.isDraft || validateCandidateItems(candidateItems, `modifica del campo ${field}`, false, id)) setItems(candidateItems);
             };
 
             const handleSalChange = (id, salId, value) => {
-                setItems(items.map(item => item.id === id ? { ...item, eseguiti: { ...item.eseguiti, [salId]: value } } : item));
+                const candidateItems = items.map(item => item.id === id ? { ...item, eseguiti: { ...item.eseguiti, [salId]: value } } : item);
+                const target = candidateItems.find(item => item.id === id);
+                if (target?.isDraft || validateCandidateItems(candidateItems, `modifica del SAL ${salId}`, false, id)) setItems(candidateItems);
             };
 
             const handleTotalChange = (id, value) => {
                 if (String(value).trim() === '') return;
-                setItems(items.map(item => {
+                const validatedNumber = finiteNumber(value);
+                if (validatedNumber === null || validatedNumber < 0) {
+                    alert(`Importo totale non valido: ${describeValue(value)}`);
+                    return;
+                }
+                const candidateItems = items.map(item => {
                     if (item.id === id) {
-                        let parsedValue = parseFloat(value) || 0;
+                        let parsedValue = validatedNumber;
                         if (isPreItem(item.codice)) return { ...item, eseguiti: { 'PRE': parsedValue.toString() } };
                         if (isExtraItem(item.codice)) return { ...item, eseguiti: { 'EXTRA': parsedValue.toString() } };
                         
@@ -969,7 +1274,9 @@
                         return { ...item, eseguiti: { ...item.eseguiti, [latestSal]: (parsedValue - previousSalsTotal).toString() } };
                     }
                     return item;
-                }));
+                });
+                const target = candidateItems.find(item => item.id === id);
+                if (target?.isDraft || validateCandidateItems(candidateItems, 'modifica del totale eseguito', false, id)) setItems(candidateItems);
             };
 
             const impostaSaldo = (id) => {
@@ -996,7 +1303,9 @@
                 if (!window.confirm(`Creare SAL n° ${nextSalNumber}?`)) return;
                 setSals([...sals, nextSalNumber]);
                 setActiveSalView(nextSalNumber);
-                setItems(items.map(item => ({ ...item, eseguiti: { ...item.eseguiti, [nextSalNumber]: 0 } })));
+                setItems(items.map(item => (isExtraItem(item.codice) || isPreItem(item.codice))
+                    ? item
+                    : ({ ...item, eseguiti: { ...item.eseguiti, [nextSalNumber]: 0 } })));
             };
 
             const deleteLastSal = () => {
@@ -1016,7 +1325,13 @@
                 }));
             };
 
-            const toggleEdit = (id) => setEditingId(prev => prev === id ? null : id);
+            const toggleEdit = (id) => {
+                if (editingId !== id) { setEditingId(id); return; }
+                const candidateItems = items.map(item => item.id === id ? (() => { const { isDraft, ...clean } = item; return clean; })() : item);
+                if (!validateCandidateItems(candidateItems, 'salvataggio della voce', false, id)) return;
+                setItems(candidateItems);
+                setEditingId(null);
+            };
             const deleteItem = (id) => {
                 if(window.confirm("Eliminare questa voce?")) {
                     setItems(items.filter(item => item.id !== id));
@@ -1028,7 +1343,7 @@
                 const newId = items.length > 0 ? Math.max(...items.map(i => i.id)) + 1 : 1;
                 setItems([...items, {
                     id: newId, codice: "", descrizione: "", importoPrevisto: "", note: "", pagatoDa: "",
-                    eseguiti: sals.reduce((acc, sal) => ({ ...acc, [sal]: 0 }), {})
+                    eseguiti: sals.reduce((acc, sal) => ({ ...acc, [sal]: 0 }), {}), isDraft: true
                 }]);
                 setSearchCodice(""); setShowOnlyExtra(false); setEditingId(newId);
                 setTimeout(() => {
@@ -1046,7 +1361,7 @@
                     if (!isNaN(numPart) && numPart > maxNum) maxNum = numPart;
                 });
                 setItems([...items, {
-                    id: newId, codice: `EXTRA-${String(maxNum + 1).padStart(3, '0')}`, descrizione: "", importoPrevisto: "", note: "", pagatoDa: "", eseguiti: { 'EXTRA': 0 }
+                    id: newId, codice: `EXTRA-${String(maxNum + 1).padStart(3, '0')}`, descrizione: "", importoPrevisto: "", note: "", pagatoDa: "", eseguiti: { 'EXTRA': 0 }, isDraft: true
                 }]);
                 setSearchCodice(""); setShowOnlyExtra(true); setActiveSalView("ALL"); setEditingId(newId);
                 setTimeout(() => {
@@ -1064,7 +1379,7 @@
                     if (!isNaN(numPart) && numPart > maxNum) maxNum = numPart;
                 });
                 setItems([...items, {
-                    id: newId, codice: `PRE-${String(maxNum + 1).padStart(3, '0')}`, descrizione: "", importoPrevisto: "", note: "", pagatoDa: "", eseguiti: { 'PRE': 0 }
+                    id: newId, codice: `PRE-${String(maxNum + 1).padStart(3, '0')}`, descrizione: "", importoPrevisto: "", note: "", pagatoDa: "", eseguiti: { 'PRE': 0 }, isDraft: true
                 }]);
                 setSearchCodice(""); setEditingId(newId);
                 setTimeout(() => {
@@ -1075,7 +1390,9 @@
             };
 
             const handleBackup = (isExit = false) => {
-                const dataToSave = JSON.stringify(creaPayload(), null, 2);
+                const prepared = prepareValidatedJson('Backup JSON');
+                if (!prepared) return;
+                const dataToSave = prepared.json;
                 const blob = new Blob([dataToSave], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement('a'); link.href = url;
@@ -1085,10 +1402,10 @@
                 setLastSavedData(snapshotDati);
                 registraSalvataggio('file');
                 if (isExit) {
-                    alert("✅ Backup completato. Puoi chiudere.");
+                    alert("✅ Backup validato e download avviato. Puoi chiudere.");
                     try { window.close(); } catch(e) {}
                 } else {
-                    showMsg('✅ Backup scaricato!');
+                    showMsg('✅ Backup validato; download avviato.');
                 }
             };
 
@@ -1312,7 +1629,24 @@
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     try {
-                    const { items: restoredData, sals: salsDalFile, ultimoSalId: ultimoDalFile, overridesImponibile: overridesDalFile } = leggiPayload(JSON.parse(e.target.result));
+                    const parsedFile = JSON.parse(e.target.result);
+                    const restoreValidation = validatePayload(parsedFile, { source: file.name || 'backup selezionato' });
+                    if (!restoreValidation.valid) {
+                        alert(formatValidationIssues(`Ripristino annullato: trovati ${restoreValidation.errors.length} errori. Nessun dato è stato modificato.`, restoreValidation.errors));
+                        return;
+                    }
+                    if (restoreValidation.warnings.length > 0 && !approveValidation(restoreValidation, 'il ripristino', false)) return;
+
+                    const currentSnapshot = JSON.stringify(creaPayload(), null, 2);
+                    try {
+                        localStorage.setItem('sal-pre-restore-snapshot', currentSnapshot);
+                        if (localStorage.getItem('sal-pre-restore-snapshot') !== currentSnapshot) throw new Error('verifica della copia fallita');
+                    } catch (snapshotError) {
+                        alert(`Ripristino annullato: impossibile conservare la copia preventiva dei dati correnti (${snapshotError.message}).`);
+                        return;
+                    }
+
+                    const { items: restoredData, sals: salsDalFile, ultimoSalId: ultimoDalFile, overridesImponibile: overridesDalFile } = leggiPayload(parsedFile);
                     if (Array.isArray(restoredData)) {
                         let maxSalFound = 1;
                         const upgradedData = restoredData.map(item => {
@@ -1332,9 +1666,9 @@
                         setSals(nuoviSals);
                         setItems(upgradedData); setUltimoSalId(nuovoUltimo); setOverridesImponibile(nuoviOverrides); setActiveSalView("ALL"); setEditingId(null);
                         setLastSavedData(JSON.stringify({ items: upgradedData, sals: nuoviSals, ultimoSalId: nuovoUltimo, overridesImponibile: nuoviOverrides }));
-                        alert("Dati ripristinati con successo!");
+                        alert("Dati ripristinati con successo. La copia precedente è conservata in sal-pre-restore-snapshot.");
                     }
-                    } catch (error) { alert("Errore durante la lettura del file."); }
+                    } catch (error) { alert(`Ripristino annullato senza modifiche: ${error.message}`); }
                 }; reader.readAsText(file);
                 }
                 if (fileInputRef.current) fileInputRef.current.value = '';
@@ -1875,8 +2209,8 @@
                                                     <TotalDraftInput committedValue={item.importoPrevisto} onCommit={(val) => handleItemChange(item.id, 'importoPrevisto', val)} className={`w-full border rounded-lg p-2 text-right text-base font-bold transition-colors ${isExtra ? 'text-orange-700' : (isPre ? 'text-indigo-700' : 'text-gray-800')} ${editingId === item.id ? 'border-blue-300 bg-white' : 'border-transparent bg-transparent hover:border-gray-300 hover:bg-white focus:border-blue-500 focus:bg-white'}`} />
                                                 </div>
                                                 <div className="text-right flex flex-col items-end">
-                                                    <span className="text-[10px] uppercase text-gray-500 font-bold block mb-1">{activeSalView === "ALL" || isPre ? "Eseguito Tot." : `Eseguito SAL ${activeSalView}`}</span>
-                                                    {activeSalView === "ALL" || isPre ? (
+                                                    <span className="text-[10px] uppercase text-gray-500 font-bold block mb-1">{activeSalView === "ALL" || isPre || isExtra ? "Eseguito Tot." : `Eseguito SAL ${activeSalView}`}</span>
+                                                    {activeSalView === "ALL" || isPre || isExtra ? (
                                                         <TotalDraftInput committedValue={totalItemEseguito} onCommit={(val) => handleTotalChange(item.id, val)} className={`w-full border rounded-lg p-2 text-right text-sm font-bold ${isCompletato && !isExtra && !isPre ? 'border-green-400 bg-green-50 text-green-700' : 'border-blue-300 bg-white'}`} />
                                                     ) : (
                                                         <input type="number" step="0.01" value={item.eseguiti?.[activeSalView] ?? ''} onChange={(e) => handleSalChange(item.id, activeSalView, e.target.value)} onFocus={(e) => setTimeout(() => e.target.select(), 0)} className="w-full border rounded-lg p-2 text-right text-sm border-blue-300 bg-white" />
@@ -1948,7 +2282,7 @@
                                     </td>
                                     <td className="px-4 py-3 align-top text-right" style={{ whiteSpace: 'nowrap' }}>
                                         <div className="flex flex-col items-end gap-1">
-                                            {activeSalView === "ALL" || isPre ? (
+                                            {activeSalView === "ALL" || isPre || isExtra ? (
                                             <>
                                                 <TotalDraftInput committedValue={totalItemEseguito} onCommit={(val) => handleTotalChange(item.id, val)} className={`w-full border rounded p-1.5 text-right font-bold ${isCompletato && !isExtra && !isPre ? 'border-green-400 bg-green-50 text-green-700' : 'border-gray-300'}`} />
                                                 {!isExtra && !isPre && sals.length > 1 && (<span className="text-[10px] text-gray-500">Aggiorna l'ultimo SAL</span>)}
